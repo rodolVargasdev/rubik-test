@@ -31,6 +31,12 @@ animaciones three.js. Sin build: módulos ES servidos tal cual desde `src/`.
   al frente), así que el 4x4 no necesita paso de orientación.
 - **Textos de la interfaz en español neutro**, sin voseo y sin tipografía de IA.
 
+## Trabajo en curso
+- Fase 2 (paridades exhaustivas, armado rápido, editor para pintar el cubo,
+  registro de rompecabezas): ver `odd/tasks/fase-2-paridades-armado-rapido-editor.md`.
+- El repositorio es público por preferencia del usuario.
+- Publicar en Pages: `git push origin "$(git subtree split --prefix src)":gh-pages`.
+
 ## Verificar
 ```bash
 node tests/verify-algorithms.mjs
