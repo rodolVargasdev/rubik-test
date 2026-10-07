@@ -119,7 +119,7 @@ preguntan al llegar a cada punto, una por vez.
   conocidos y clasificar por un método distinto; (d) sugerencias: guardas de
   `seg` en `named4`, rechazar `--sample` inválido, comprobar que los objetivos
   de `esquinas-diagonal` y `aristas-vecinas` quedan sin armar.
-- [ ] **T2** Armado rápido. Métrica decidida por el usuario (2026-10-07):
+- [x] **T2** Armado rápido. Métrica decidida por el usuario (2026-10-07):
   **cada botón de la app cuenta un giro** (3x3: caras y capas medias M/E/S,
   media vuelta incluida; 4x4: cualquier bloque de capas contiguas; rotaciones
   x/y/z cuentan cero). Así una mezcla de 3 botones se resuelve en 3 como máximo.
@@ -223,3 +223,8 @@ docker build -t rubik-spa .
   `AGENTS.md`. Navegador: todas las rutas cargan, el rápido da 3 giros, el
   automático lista 9 pasos, sin errores de consola. `docker build -t
   rubik-spa .` OK con los seis arneses en la etapa de verificación.
+- **Cierre** (2026-10-07). Verificación final del coordinador: las seis suites
+  en 0 fallas (180, 278, 5064, 2159, 3360, 40), sin caracteres vetados ni voseo;
+  editor a 375 px sin desplazamiento horizontal en 3x3 y 4x4, sin errores de
+  consola. Revisiones RDD apagadas por el usuario (global off) antes de T2.3.
+  Fusionado a `main` y publicado en GitHub Pages.
