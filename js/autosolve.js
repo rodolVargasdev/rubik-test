@@ -1,13 +1,13 @@
 // "Armado automático" and "Armado rápido" widget, shared by the notation view,
 // both guides and the editor. It renders its own bar (buttons + speed) and
 // narration panel inside `host` and drives whatever CubeView `getView()` returns.
-import { solve, serialize, STEPS } from './solver.js';
+import { solve, serialize } from './solver.js';
+import { findPuzzle } from './puzzles/index.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const movesOf = (segs) => segs.reduce((t, x) => t + (x.groups ? x.groups.reduce((u, g) => u + g.moves.length, 0) : 0), 0);
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const QUICK_MS = 2000;
-const QUICK_TARGET = { 3: 20, 4: 0 };
+const puzzleOf = (n) => findPuzzle('nxn', n);
 
 function safeGet(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
@@ -112,7 +112,8 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
     if (solving) { stop(); return; }
     const n = getN();
     const view = getView();
-    const stepTitle = (id) => STEPS[n].find(([k]) => k === id)?.[1] || id;
+    const steps = puzzleOf(n).steps;
+    const stepTitle = (id) => steps.find(([k]) => k === id)?.[1] || id;
     const my = ++runId;
     setSolving(true, 'auto');
     onStart();
@@ -129,7 +130,7 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
     q('.sv-status').hidden = true;
     q('.sv-extra').hidden = true;
     q('.sv-steps').hidden = false;
-    q('.sv-steps').innerHTML = STEPS[n].map(([id, title], i) => {
+    q('.sv-steps').innerHTML = steps.map(([id, title], i) => {
       const segs = res.segments.filter((x) => x.step === id);
       const skipped = segs.length > 0 && segs.every((x) => x.skipped);
       return `<li class="sv-step${skipped ? ' skipped' : ''}" data-step="${id}">
@@ -199,7 +200,7 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
   // The search runs in a module worker; cancelling terminates it, and the next
   // search creates a fresh one. If workers are unavailable it runs inline.
   function computeQuick(state, n) {
-    const opts = { timeMs: QUICK_MS, target: QUICK_TARGET[n] ?? 0 };
+    const opts = { timeMs: 2000, target: 0, ...puzzleOf(n).solvers.quickOptions };
     return new Promise((resolve) => {
       cancelSearch = () => { quickWorker?.terminate(); quickWorker = null; cancelSearch = null; resolve({ cancelled: true }); };
       const inline = async () => {

@@ -6,6 +6,7 @@ import { deserialize } from '../solver.js';
 import { mountAutoSolve } from '../autosolve.js';
 import { FACES, layout, emptyGrid, solvedGrid, gridFromState, isFixedCenter, holdNormalized } from './facelets.js';
 import { validateGrid } from './validate.js';
+import { listPuzzles } from '../puzzles/index.js';
 
 const FACE_LABEL = { U: 'superior', D: 'inferior', F: 'frontal', B: 'trasera', R: 'derecha', L: 'izquierda' };
 const FACE_TITLE = { U: 'Arriba', D: 'Abajo', F: 'Frente', B: 'Atrás', R: 'Derecha', L: 'Izquierda' };
@@ -13,7 +14,7 @@ const cap = (s) => s[0].toUpperCase() + s.slice(1);
 
 // `shared.notation` holds { n, state } of the last cube shown in the notation view.
 export function mountEditor(main, { store, shared }) {
-  const sizes = [{ n: 3 }, { n: 4 }];
+  const sizes = listPuzzles().filter((p) => p.kind === 'nxn' && p.editor);
   let n = sizes.some((p) => p.n === store.get('rubik-editor-n', 3)) ? store.get('rubik-editor-n', 3) : sizes[0].n;
   const grids = Object.fromEntries(sizes.map((p) => [p.n, solvedGrid(p.n)]));
   let brush = 'F';
