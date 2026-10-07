@@ -5,15 +5,24 @@
 // Run: node tests/verify-last-layer.mjs [3|4|all] [--sample K]
 // With --sample K only every ceil(total/K)-th state (by BFS index) is solved;
 // the enumeration and its counter-check stay complete.
+// Hidden self-test modes (--selftest=drop|crash|short) make one worker misbehave
+// on purpose; the main run launches each in a child process and requires it to FAIL.
 import { CubeState, tokenize, normalFace } from '../src/js/cube-core.js';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { availableParallelism } from 'node:os';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { solve, STEPS } from '../src/js/solver.js';
-import { ALGS } from '../src/js/content.js';
+import { ALGS, GUIDE_4, buildCase } from '../src/js/content.js';
 
 const args = process.argv.slice(2);
 const sampleAt = args.indexOf('--sample');
 const SAMPLE = sampleAt >= 0 ? Number(args[sampleAt + 1]) : 0;
+if (isMainThread && sampleAt >= 0 && !(Number.isInteger(SAMPLE) && SAMPLE > 0)) {
+  console.log(`ERROR  --sample exige un entero positivo, se recibió "${args[sampleAt + 1] ?? ''}"`);
+  process.exit(1);
+}
+const SELFTEST = (args.find((a) => a.startsWith('--selftest=')) || '').slice('--selftest='.length);
 const which = args.find((a, i) => !(sampleAt >= 0 && i === sampleAt + 1) && ['3', '4', 'all'].includes(a)) || 'all';
 const SIZES = which === 'all' ? [3, 4] : [Number(which)];
 const JOBS = Math.max(1, availableParallelism());
@@ -151,15 +160,34 @@ function permParity(h) {
   return (4 - cycles) % 2;
 }
 
-// Case seen with the best common U alignment: exactly two pieces of one kind
-// out of place and the other kind placed.
+// Independent classification, by actually swapping two same-kind pieces: a
+// state is "one transposition" when swapping the pieces in two slots of one kind
+// leaves a last layer that is solved up to a single common U turn. Adjacent or
+// opposite is read from the geometry of the two slots, not from ring indices.
+const CORNER_XZ = CORNER_RING;
+const EDGE_XZ = [[0, 1], [1, 0], [0, -1], [-1, 0]]; // F, R, B, L as (x, z)
+const turnU = ([x, z], k) => { let v = [x, z]; for (let i = 0; i < k; i++) v = [-v[1], v[0]]; return v; };
+const sameXZ = (a, b) => a[0] === b[0] && a[1] === b[1];
+const solvedUpToAuf = (cHome, eHome) => [0, 1, 2, 3].some((k) =>
+  cHome.every((h, j) => sameXZ(h, turnU(CORNER_XZ[j], k))) && eHome.every((h, j) => sameXZ(h, turnU(EDGE_XZ[j], k))));
+
 function oracleClass({ hc, he }) {
-  const miss = (h, k) => [0, 1, 2, 3].filter((j) => h[j] !== (j + k) % 4);
-  for (let k = 0; k < 4; k++) {
-    const mc = miss(hc, k);
-    const me = miss(he, k);
-    if (mc.length === 0 && me.length === 2) return (me[0] - me[1] + 4) % 4 === 2 ? 'aristas opuestas' : 'aristas vecinas';
-    if (me.length === 0 && mc.length === 2) return (mc[0] - mc[1] + 4) % 4 === 2 ? 'esquinas en diagonal' : 'esquinas vecinas';
+  const cHome = hc.map((h) => CORNER_XZ[h]);
+  const eHome = he.map((h) => EDGE_XZ[h]);
+  if (solvedUpToAuf(cHome, eHome)) return 'sin permutación';
+  const tries = [['corners', cHome, CORNER_XZ], ['edges', eHome, EDGE_XZ]];
+  for (const [kind, home, slots] of tries) {
+    for (let a = 0; a < 4; a++) {
+      for (let b = a + 1; b < 4; b++) {
+        const swapped = home.slice();
+        [swapped[a], swapped[b]] = [swapped[b], swapped[a]];
+        const fixed = kind === 'corners' ? solvedUpToAuf(swapped, eHome) : solvedUpToAuf(cHome, swapped);
+        if (!fixed) continue;
+        const across = slots[a][0] + slots[b][0] === 0 && slots[a][1] + slots[b][1] === 0;
+        if (kind === 'edges') return across ? 'aristas opuestas' : 'aristas vecinas';
+        return across ? 'esquinas en diagonal' : 'esquinas vecinas';
+      }
+    }
   }
   return 'caso mixto';
 }
@@ -221,43 +249,89 @@ function checkState(n, start, tag, stats) {
 
 // ---------- run ----------
 // Solving every state is the slow part, so the states are split among worker
-// threads (interleaved so each gets the same mix); each one enumerates the
-// space itself and reports its counters back.
-function runShard(n, shard, shards, step) {
+// threads (interleaved so each gets the same mix). The main thread enumerates
+// once and shares the result through SharedArrayBuffers, so workers never repeat
+// the BFS and memory stays flat however many cores the host has.
+function runShard(n, shard, shards, step, shared) {
   const T = locTable(n);
-  const E = enumerate(n, T, false);
-  const stats = { classes: {}, oll: 0, pll: 0, solved: 0 };
-  for (let i = 0, c = 0; i < E.states.length; i += step, c++) {
+  const L = T.locs.length;
+  const flat = new Uint8Array(shared.states);
+  const E = {
+    states: { length: shared.count },
+    parent: new Int32Array(shared.parent),
+    via: new Int8Array(shared.via),
+    gens: GENS[n].map(([name, alg]) => ({ name, alg })),
+  };
+  const stats = { classes: {}, oll: 0, pll: 0, solved: 0, tested: 0 };
+  for (let i = 0, c = 0; i < shared.count; i += step, c++) {
     if (c % shards !== shard) continue;
+    if (SELFTEST === 'short' && shard === 0 && !stats.dropped) { stats.dropped = true; continue; }
+    stats.tested++;
     const start = rebuild(n, E, i);
     const map = start.facelets();
-    ok(T.locs.every((k, j) => LETTERS[E.states[i][j]] === map.get(k)), () => `${n}x${n} #${i} la reconstruccion coincide con el BFS`);
+    ok(T.locs.every((k, j) => LETTERS[flat[i * L + j]] === map.get(k)), () => `${n}x${n} #${i} la reconstruccion coincide con el BFS`);
     if (checkState(n, start, `${n}x${n} #${i}`, stats)) stats.solved++;
   }
   return stats;
 }
 
 if (!isMainThread) {
-  const { n, shard, shards, step } = workerData;
-  const stats = runShard(n, shard, shards, step);
-  parentPort.postMessage({ stats, passes, failures, msgs });
+  const { n, shard, shards, step, shared } = workerData;
+  if (SELFTEST === 'drop' && shard === 0) process.exit(0); // exits cleanly without reporting
+  if (SELFTEST === 'crash' && shard === 0) process.exit(3); // exits with a failure code
+  const stats = runShard(n, shard, shards, step, shared);
+  parentPort.postMessage({ shard, stats, passes, failures, msgs });
   process.exit(0);
 }
 
-const solveParallel = (n, step) => new Promise((resolve) => {
-  const total = { classes: {}, oll: 0, pll: 0, solved: 0 };
+// Packs the BFS result into shared memory for the workers.
+function share(E, T) {
+  const L = T.locs.length;
+  const states = new SharedArrayBuffer(E.states.length * L);
+  const flat = new Uint8Array(states);
+  E.states.forEach((st, i) => flat.set(st, i * L));
+  const parent = new SharedArrayBuffer(E.states.length * 4);
+  new Int32Array(parent).set(E.parent);
+  const via = new SharedArrayBuffer(E.states.length);
+  new Int8Array(via).set(E.via);
+  return { states, parent, via, count: E.states.length };
+}
+
+// Every shard must report its counters and exit with code 0, and together they
+// must have solved exactly the number of states that the sampling promised.
+const solveParallel = (n, step, shared, expectedStates) => new Promise((resolve) => {
+  const total = { classes: {}, oll: 0, pll: 0, solved: 0, tested: 0 };
+  const reported = new Set();
   let pending = JOBS;
   for (let shard = 0; shard < JOBS; shard++) {
-    const w = new Worker(new URL(import.meta.url), { workerData: { n, shard, shards: JOBS, step }, argv: process.argv.slice(2), execArgv: ['--no-warnings'] });
-    w.on('message', ({ stats, passes: p, failures: f, msgs: m }) => {
+    const w = new Worker(new URL(import.meta.url), { workerData: { n, shard, shards: JOBS, step, shared }, argv: process.argv.slice(2), execArgv: ['--no-warnings'] });
+    w.on('message', ({ shard: sh, stats, passes: p, failures: f, msgs: m }) => {
+      reported.add(sh);
       passes += p; failures += f;
       for (const line of m) if (printed++ < MAX_PRINT) console.log(line);
-      total.oll += stats.oll; total.pll += stats.pll; total.solved += stats.solved;
+      total.oll += stats.oll; total.pll += stats.pll; total.solved += stats.solved; total.tested += stats.tested;
       for (const [k, v] of Object.entries(stats.classes)) total.classes[k] = (total.classes[k] || 0) + v;
     });
     w.on('error', (e) => { failures++; console.log(`FALLA  hilo ${shard}: ${e.message}`); });
-    w.on('exit', () => { if (--pending === 0) resolve(total); });
+    w.on('exit', (code) => {
+      ok(code === 0, `${n}x${n} el hilo ${shard} terminó con código ${code}`);
+      ok(reported.has(shard), `${n}x${n} el hilo ${shard} no entregó sus contadores`);
+      if (--pending === 0) {
+        ok(reported.size === JOBS, `${n}x${n} faltó el resultado de ${JOBS - reported.size} hilo(s)`);
+        ok(total.solved === expectedStates, `${n}x${n} se resolvieron ${total.solved} estados y se esperaban ${expectedStates}`);
+        resolve(total);
+      }
+    });
   }
+});
+
+// Runs this same file in a child with a sabotaged worker; it must exit with 1.
+const selfTest = (mode) => new Promise((resolve) => {
+  const child = spawn(process.execPath, ['--no-warnings', fileURLToPath(import.meta.url), '3', '--sample', '12', `--selftest=${mode}`], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.on('data', (d) => { out += d; });
+  child.stderr.on('data', (d) => { out += d; });
+  child.on('exit', (code) => resolve({ code, out }));
 });
 
 const t00 = Date.now();
@@ -272,7 +346,9 @@ ${n}x${n}: ${E.states.length} estados de última capa enumerados (esperado ${exp
 
   const step = SAMPLE > 0 ? Math.ceil(E.states.length / SAMPLE) : 1;
   const t1 = Date.now();
-  const stats = await solveParallel(n, step);
+  const shared = share(E, T);
+  const expectedStates = Math.ceil(E.states.length / step);
+  const stats = await solveParallel(n, step, shared, expectedStates);
   console.log(`${n}x${n}: ${stats.solved} estados resueltos${step > 1 ? ` (muestra: uno de cada ${step})` : ' (todos)'} en ${((Date.now() - t1) / 1000).toFixed(1)} s con ${JOBS} hilos`);
   if (n === 4) {
     console.log(`4x4: con paridad OLL ${stats.oll}, con paridad PLL ${stats.pll}; casos narrados: ${JSON.stringify(stats.classes)}`);
@@ -287,15 +363,23 @@ ${n}x${n}: ${E.states.length} estados de última capa enumerados (esperado ${exp
       const o = oracle(4, st);
       ok(o.pllParity === wantParity, () => `${name}: el oráculo ${wantParity ? 'debe' : 'no debe'} marcar paridad PLL`);
       const r = checkState(4, st, name, { classes: {}, oll: 0, pll: 0 });
-      if (wantParity && r) {
-        const seg = r.res.segments.find((x) => x.step === 'paridad-pll');
+      ok(!!r, () => `${name}: el solucionador devolvió un resultado`);
+      if (!r) return;
+      const seg = r.res.segments.find((x) => x.step === 'paridad-pll');
+      ok(!!seg, () => `${name}: existe el paso paridad-pll`);
+      if (!seg) return;
+      if (wantParity) {
+        const label = seg.label || '';
         ok(o.cls === wantClass, () => `${name}: oráculo ${o.cls}, se esperaba ${wantClass}`);
-        ok(seg && !seg.skipped && seg.label.includes(wantClass), () => `${name}: la narración debe decir "${wantClass}", dice "${seg && seg.label}"`);
-        ok(!CLASSES.filter((c) => c !== wantClass).some((c) => (seg.label || '').includes(c)), () => `${name}: la narración no debe nombrar otro caso`);
-      }
-      if (!wantParity && r) ok(r.res.segments.find((x) => x.step === 'paridad-pll').skipped, () => `${name}: no debe usar paridad`);
+        ok(!seg.skipped && label.includes(wantClass), () => `${name}: la narración debe decir "${wantClass}", dice "${label}"`);
+        ok(!CLASSES.filter((c) => c !== wantClass).some((c) => label.includes(c)), () => `${name}: la narración no debe nombrar otro caso`);
+      } else ok(seg.skipped, () => `${name}: no debe usar paridad`);
     };
     named4('esquinas vecinas', "R U R' U' R' F R2 U' R' U' R U R' F' U r2 U2 r2 Uw2 r2 u2 U'", 'esquinas vecinas', true);
+    const Y_PERM = "F R U' R' U' R U R' F' R U R' U' R' F R F'";
+    named4('mixto (Y-perm y paridad)', `${Y_PERM} ${ALGS.PLL_PARITY}`, 'caso mixto', true);
+    const guideSetup = (id) => GUIDE_4.steps.find((x) => x.id === 'paridad-pll').cases.find((q) => q.id === id).setup;
+    named4('aristas vecinas (setup de la guía)', guideSetup('aristas-vecinas'), 'aristas vecinas', true);
     named4('PLL_PARITY sola', ALGS.PLL_PARITY, 'aristas opuestas', true);
     named4('T-perm sin paridad', "R U R' U' R' F R2 U' R' U' R U R' F'", null, false);
     // Diagonal corners: a state with the whole U face yellow whose oracle class is diagonal.
@@ -322,6 +406,22 @@ ${n}x${n}: ${E.states.length} estados de última capa enumerados (esperado ${exp
   ok(oracle(4, st4("R U R' U' R' F R2 U' R' U' R U R' F' U r2 U2 r2 Uw2 r2 u2 U'")).pllParity, 'Contraprueba: el oráculo marca paridad en dos esquinas vecinas');
   ok(!oracle(4, st4("R U R' U' R' F R2 U' R' U' R U R' F'")).pllParity, 'Contraprueba: el oráculo no marca paridad en una T-perm');
   ok(!oracle(4, new CubeState(4)).pllParity, 'Contraprueba: el oráculo no marca paridad en el cubo armado');
+  const clsOf = (alg) => oracle(4, st4(alg)).cls;
+  ok(clsOf(ALGS.PLL_PARITY) === 'aristas opuestas', 'Contraprueba: el oráculo reconoce dos aristas opuestas');
+  ok(clsOf(`U ${"R U' R U R U R U' R' U' R2"} U' ${ALGS.PLL_PARITY}`) !== 'aristas opuestas', 'Contraprueba: el oráculo distingue vecinas de opuestas');
+  ok(clsOf("R U R' U' R' F R2 U' R' U' R U R' F'") === 'caso mixto', 'Contraprueba: una T-perm no es una sola transposición');
+  ok(clsOf('U2') === 'sin permutación', 'Contraprueba: una vuelta de U no cuenta como permutación');
+}
+
+// Guard self-test: a worker that drops its result, exits with an error code or
+// skips a state must make the run fail. Skipped inside the sabotaged children.
+if (!SELFTEST) {
+  const modes = { drop: 'faltó el resultado', crash: 'terminó con código 3', short: 'se resolvieron' };
+  const results = await Promise.all(Object.keys(modes).map(selfTest));
+  Object.entries(modes).forEach(([mode, text], i) => {
+    ok(results[i].code === 1 && results[i].out.includes(text), () => `Contraprueba del arnés: con --selftest=${mode} debía fallar con "${text}" (código ${results[i].code})`);
+  });
+  console.log(`Contraprueba del arnés: ${Object.keys(modes).length} hilos saboteados detectados`);
 }
 
 console.log(`\n${passes} comprobaciones correctas, ${failures} fallas.`);

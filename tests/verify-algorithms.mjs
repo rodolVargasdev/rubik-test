@@ -155,8 +155,12 @@ for (const guide of [GUIDE_3, GUIDE_4]) {
     !EXPECT['4x4/paridad-pll/pll'](st('aristas-vecinas')) && !EXPECT['4x4/paridad-pll/aristas-vecinas'](st('pll')));
   check('Contraprueba: dos esquinas intercambiadas no pasan por dos aristas',
     !EXPECT['4x4/paridad-pll/aristas-vecinas'](st('esquinas-vecinas')) && !EXPECT['4x4/paridad-pll/pll'](st('esquinas-diagonal')));
-  check('Contraprueba: la paridad deja un caso del 3x3 (no armado) en los casos con esquinas',
-    !buildCase(4, par.find((q) => q.id === 'esquinas-vecinas')).target.isSolved());
+  // The parity cases leave a 3x3-solvable last layer: not solved, centers done, F2L intact.
+  for (const id of ['esquinas-vecinas', 'esquinas-diagonal', 'aristas-vecinas']) {
+    const t = buildCase(4, par.find((q) => q.id === id)).target;
+    check(`Contraprueba: el objetivo de ${id} queda sin armar, con centros hechos y F2L intacto`,
+      !t.isSolved() && centersDone(t) && f2lDone(t));
+  }
   check('Contraprueba: un estado mezclado no pasa como "no armado"', !new CubeState(3).apply('R').isSolved());
 }
 
