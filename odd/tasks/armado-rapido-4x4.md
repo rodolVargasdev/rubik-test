@@ -20,7 +20,7 @@ un giro. Se muestra como "la más corta encontrada" con la cota demostrada.
 - [x] **R1** Solucionador por reducción del 4x4 integrado en `quickSolve`
   (fuente `reduction`), con pruebas y en el Docker. Ruta: delegada (algoritmo
   nuevo en varios archivos).
-- [ ] **R2** Interfaz: el 4x4 muestra y ejecuta la solución; fusión a `main` y
+- [x] **R2** Interfaz: el 4x4 muestra y ejecuta la solución; fusión a `main` y
   publicación en Pages.
 
 ## Verificación
@@ -44,3 +44,6 @@ de longitudes y tiempos sobre mezclas al azar de 40 giros.
   72 giros", anima hasta armar, la caja de giros se desplaza sola, sin errores
   de consola. Limitación: el arranque en frío sin pasar el cursor por el botón
   suma ~1,3 s de tablas al primer cálculo.
+- **R2** (2026-10-07). Verificación del coordinador sobre `accfb33`:
+  `verify-quick` 2249/0; `--long4 10` con 4000 ms: longitud 56 a 72, mediana
+  61, 3,1 a 3,8 s, todas armadas. Fusionado a `main` y publicado en Pages.
