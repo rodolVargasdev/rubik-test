@@ -19,10 +19,21 @@ animaciones three.js. Sin build: módulos ES servidos tal cual desde `src/`.
   capa (r, u, l...); M/E/S siguen el sentido de L/D/F; x/y/z el de R/U/F.
 - **Máscaras:** las piezas que no importan en un paso se pintan gris mate
   (`MASKS` en `content.js`); el gris es oscuro para no confundirse con el blanco.
+- **Armado automático = mismo método que la guía:** `solver.js` no busca la
+  solución óptima; en cada paso prueba por simulación combinaciones de los
+  algoritmos de la guía (con ajustes de U y giros y) y elige la más corta que
+  avanza sin romper lo armado. Cada paso que no hace falta se emite como
+  omitido con su motivo. En el 4x4: centros por conmutadores de capa interior,
+  aristas con Uw/Dw + R U R' F R' F' R, y para las últimas una preparación de
+  hasta 4 giros exteriores antes de Dw R F' U R' F Dw' (los giros exteriores
+  nunca separan una pareja).
+- **Los centros del 4x4 se arman en su cara absoluta** (amarillo arriba, verde
+  al frente), así que el 4x4 no necesita paso de orientación.
 - **Textos de la interfaz en español neutro**, sin voseo y sin tipografía de IA.
 
 ## Verificar
 ```bash
 node tests/verify-algorithms.mjs
+node tests/verify-solver.mjs 300 40
 docker build -t rubik-spa .
 ```

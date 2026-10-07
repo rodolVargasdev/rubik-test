@@ -6,6 +6,10 @@ Guía visual en 3D para armar el cubo de Rubik:
 - **4x4 por reducción**: centros, aristas, resolver como 3x3 y los dos casos de paridad.
 - **Por qué**: animaciones que explican por qué estos métodos son los que conviene aprender.
 
+- **Armado automático** (en la vista de notación): arma el cubo desde el estado
+  en que se dejó, con los mismos pasos de la guía; narra cada paso y algoritmo y
+  explica por qué omite los pasos que no hacen falta.
+
 Cada caso se reproduce giro a giro, con una flecha que marca el giro, las piezas
 que no importan en gris y la pieza protagonista resaltada.
 
@@ -32,11 +36,15 @@ Sirve `src/` sin caché en http://localhost:5173.
 
 ```bash
 node tests/verify-algorithms.mjs
+node tests/verify-solver.mjs 300 40
 ```
 
 Simula cada caso de la guía y comprueba que el estado inicial es la situación
 descrita en el texto (por ejemplo: "tres pétalos y la arista abajo con el blanco
-de lado") y que el algoritmo llega al objetivo. Incluye contrapruebas que
+de lado") y que el algoritmo llega al objetivo. `verify-solver.mjs` arma
+mezclas al azar (300 de 3x3 y 40 de 4x4 con los argumentos de arriba, incluidas
+capas interiores y giros de todo el cubo) y comprueba que el cubo queda armado,
+orientado y que cada paso omitido trae su motivo. Incluye contrapruebas que
 demuestran que las guardas detectan un algoritmo roto.
 
 ## Estructura
@@ -46,6 +54,9 @@ demuestran que las guardas detectan un algoritmo roto.
 | `src/js/cube-core.js` | modelo lógico NxN del cubo, sin dependencias |
 | `src/js/viewer.js` | escena three.js, animación de giros, flechas y máscaras |
 | `src/js/content.js` | pasos, casos y algoritmos de la guía |
+| `src/js/solver.js` | solucionador didáctico 3x3 y 4x4 con narración |
+| `src/js/solver-worker.js` | corre el solucionador sin congelar la página |
 | `src/js/app.js` | SPA: rutas, vistas y reproductor |
-| `tests/verify-algorithms.mjs` | verificación por simulación |
+| `tests/verify-algorithms.mjs` | verificación por simulación de la guía |
+| `tests/verify-solver.mjs` | verificación del armado automático |
 | `docs/STACK_TECNOLOGICO.md` | dependencias y versiones fijadas |
