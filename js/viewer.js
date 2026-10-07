@@ -58,12 +58,16 @@ export class Stage {
     this.io.observe(container);
     this.resize();
 
-    this.clock = new THREE.Clock();
-    const loop = () => {
+    // Plain clock: THREE.Clock is deprecated since r18x.
+    let last = performance.now();
+    let t = 0;
+    const loop = (now = performance.now()) => {
       this.raf = requestAnimationFrame(loop);
-      if (!this.visible || document.hidden) { this.clock.getDelta(); return; }
-      const dt = Math.min(this.clock.getDelta(), 0.05);
-      const t = this.clock.elapsedTime;
+      const raw = (now - last) / 1000;
+      last = now;
+      if (!this.visible || document.hidden) return;
+      const dt = Math.min(raw, 0.05);
+      t += dt;
       for (const fn of this.updaters) fn(dt, t);
       this.controls?.update();
       this.renderer.render(this.scene, this.camera);
