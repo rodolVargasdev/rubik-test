@@ -201,6 +201,26 @@ p { margin: 0; }
 .sv-step.skipped .sv-dot { border-style: dashed; color: var(--ink-2); }
 .cap-sub { font: 500 0.92rem/1.35 var(--body); color: var(--ink-2); }
 
+/* A sticky column taller than the screen hides its bottom: release it while
+   the narration panel is open. */
+.stage-col:has(.solver:not([hidden])) { position: relative; top: 0; }
+.auto-host { display: grid; gap: 12px; }
+/* While solving, the locked player only gets in the way of the narration. */
+.stage-col.auto-on .player { display: none; }
+.stage { scroll-margin-top: 84px; }
+@media (max-width: 600px) {
+  .solver { padding: 12px; }
+  .solver-bar .btn { flex: 1 1 100%; justify-content: center; }
+  .solver-bar .speed { width: 100%; justify-content: space-between; }
+  .solver-bar .speed button { flex: 1; }
+  .sv-head { flex-wrap: wrap; }
+  .solver .chip { font-size: 0.95rem; padding: 5px 7px; }
+  .stage { scroll-margin-top: 112px; }
+  .cap-label { font-size: 1.02rem; max-width: none; }
+  .cap-step { font-size: 0.8rem; }
+  .stage-cap { font-size: 0.92rem; }
+}
+
 /* ---------- guide ---------- */
 .guide-head { max-width: 80ch; }
 .guide-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(330px, 0.85fr); gap: 28px; align-items: start; }

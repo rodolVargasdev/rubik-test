@@ -6,7 +6,7 @@ Guía visual en 3D para armar el cubo de Rubik:
 - **4x4 por reducción**: centros, aristas, resolver como 3x3 y los dos casos de paridad.
 - **Por qué**: animaciones que explican por qué estos métodos son los que conviene aprender.
 
-- **Armado automático** (en la vista de notación): arma el cubo desde el estado
+- **Armado automático** (en la notación y en las guías 3x3 y 4x4): arma el cubo desde el estado
   en que se dejó, con los mismos pasos de la guía; narra cada paso y algoritmo y
   explica por qué omite los pasos que no hacen falta.
 

@@ -565,7 +565,8 @@ function edges(p) {
     const piece = s.cubies.find((q) => q.type === 'edge' && newly.includes(slotKey(s, q)));
     unrun(s, c.flat);
     const left = after.length;
-    p.push('aristas', `Arista ${piece ? nameOf(piece) : ''} emparejada${left ? `, quedan ${left}` : ''}`.replace('Arista  ', 'Arista '), c.groups);
+    const what = piece ? `Empareja la arista ${nameOf(piece)}` : 'Empareja una arista';
+    p.push('aristas', left ? `${what} (después quedan ${left} sin pareja)` : `${what}: es la última`, c.groups);
   }
 }
 
