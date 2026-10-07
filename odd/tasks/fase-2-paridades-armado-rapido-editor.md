@@ -109,7 +109,7 @@ preguntan al llegar a cada punto, una por vez.
   paso. Mismo commit que T1.1.
 - [x] **T1.3** Guía 4x4: un caso animado por familia de paridad PLL, con su
   entrada en `EXPECT`. Ruta: delegada (contenido + prueba).
-- [ ] **T1.4** Hallazgos de la revisión `review-63345b73fbfeb527` (aprobada,
+- [x] **T1.4** Hallazgos de la revisión `review-63345b73fbfeb527` (aprobada,
   no bloqueantes): (a) el arnés paralelo no comprueba que cada hilo entregó sus
   contadores ni su código de salida, y podría informar 0 fallas con parte del
   espacio sin juzgar; (b) en Docker cada hilo repite el BFS completo, así que la
@@ -119,8 +119,25 @@ preguntan al llegar a cada punto, una por vez.
   conocidos y clasificar por un método distinto; (d) sugerencias: guardas de
   `seg` en `named4`, rechazar `--sample` inválido, comprobar que los objetivos
   de `esquinas-diagonal` y `aristas-vecinas` quedan sin armar.
-- [ ] **T2** Armado rápido. Antes: explicar límites de optimalidad y decidir la
-  métrica con el usuario.
+- [ ] **T2** Armado rápido. Métrica decidida por el usuario (2026-10-07):
+  **cada botón de la app cuenta un giro** (3x3: caras y capas medias M/E/S,
+  media vuelta incluida; 4x4: cualquier bloque de capas contiguas; rotaciones
+  x/y/z cuentan cero). Así una mezcla de 3 botones se resuelve en 3 como máximo.
+  Sin dependencias nuevas: búsqueda propia, verificable por simulación.
+  - [ ] **T2.1** Búsqueda exacta por encuentro a mitad de camino (ambos
+    tamaños) en un worker con límite de tiempo: tabla de estados a profundidad
+    <= 3 desde el armado y búsqueda desde la mezcla hasta completar. Demuestra
+    el mínimo cuando lo encuentra. Prueba: mezclas de k botones dan solución
+    <= k que arma al reproducirla; contraprueba de minimalidad contra
+    enumeración exhaustiva independiente para k <= 3.
+  - [ ] **T2.2** 3x3 largo: IDA* con tablas de cota (orientación de esquinas,
+    de aristas, capa media) y, si se agota el tiempo, solución en dos fases
+    mostrada como "la más corta encontrada" con la cota inferior demostrada
+    ("entre X e Y giros"). 4x4 largo: sin mínimo práctico; se dice con
+    honestidad y se ofrece el armado automático.
+  - [ ] **T2.3** Interfaz: botón "Armado rápido" junto al automático; traza la
+    lista de giros con su cuenta y la etiqueta "mínimo demostrado" o la cota, y
+    la ejecuta animada. Revisión en navegador.
 - [ ] **T3** Editor para pintar el cubo. Antes: decidir con el usuario la forma.
 - [ ] **T4** Registro de rompecabezas.
 
@@ -155,3 +172,8 @@ docker build -t rubik-spa .
   distinguen vecinas de diagonal y aristas de esquinas. Revisado en el
   navegador: el caso diagonal se ve con todo el amarillo arriba, sin errores
   de consola.
+- **T1.4** (2026-10-07, commit siguiente a `b113b69`). Arnés con guarda de
+  hilos (3 autopruebas saboteadas que deben fallar), BFS único compartido,
+  oráculo por intercambio aplicado: coincide con el solucionador en los 248 832
+  estados. `all --sample 300`: 5128/0 en 8 s; `3`: 497 725/0 en 22 s; `4`:
+  2 115 212/0 en 201 s; `verify-algorithms`: 180/0; `docker build` OK.
