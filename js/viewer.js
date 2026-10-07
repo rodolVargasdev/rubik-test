@@ -8,6 +8,7 @@ import { CubeState, FACE_COLORS, FACE_NORMALS, parseMove, pieceSolved } from './
 
 const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const DIM_COLOR = new THREE.Color('#4A5063');
+const UNPAINTED = '#4A5063';
 const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
 
 export class Stage {
@@ -272,6 +273,22 @@ export class CubeView {
       s.material.roughness = on ? 0.42 : 0.85;
       s.material.envMapIntensity = on ? 1 : 0.35;
     }
+  }
+
+  // Editor preview: colors each sticker by the slot it sits in instead of by
+  // its home face. colorOf(cubie, face) -> css color, or null for unpainted.
+  setPaint(colorOf) {
+    for (const s of this.stickers) {
+      s.userData.base.set(colorOf(s.userData.cubie, s.userData.face) ?? UNPAINTED);
+      s.userData.target.copy(s.userData.base);
+      s.material.color.copy(s.userData.base);
+    }
+    this.refreshMask();
+  }
+
+  clearPaint() {
+    for (const s of this.stickers) s.userData.base.set(FACE_COLORS[s.userData.face]);
+    this.refreshMask();
   }
 
   setFocus(ids) { this.focus = new Set(ids); }
