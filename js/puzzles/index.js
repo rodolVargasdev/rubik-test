@@ -28,6 +28,6 @@ export function registerNxN(n, { guide, steps, solver = solve, quickOptions }) {
 }
 
 registerNxN(3, { guide: GUIDE_3, steps: STEPS[3], quickOptions: { target: 20 } });
-registerNxN(4, { guide: GUIDE_4, steps: STEPS[4] });
+registerNxN(4, { guide: GUIDE_4, steps: STEPS[4], quickOptions: { timeMs: 4000 } });
 
 export { registerPuzzle, getPuzzle, listPuzzles, findPuzzle };
