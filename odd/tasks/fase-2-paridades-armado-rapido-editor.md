@@ -130,7 +130,7 @@ preguntan al llegar a cada punto, una por vez.
     el mínimo cuando lo encuentra. Prueba: mezclas de k botones dan solución
     <= k que arma al reproducirla; contraprueba de minimalidad contra
     enumeración exhaustiva independiente para k <= 3.
-  - [ ] **T2.2** 3x3 largo: IDA* con tablas de cota (orientación de esquinas,
+  - [x] **T2.2** 3x3 largo: IDA* con tablas de cota (orientación de esquinas,
     de aristas, capa media) y, si se agota el tiempo, solución en dos fases
     mostrada como "la más corta encontrada" con la cota inferior demostrada
     ("entre X e Y giros"). 4x4 largo: sin mínimo práctico; se dice con
@@ -185,3 +185,11 @@ docker build -t rubik-spa .
   simulación; el riesgo residual es un falso negativo por choque de hash
   (Zobrist de 64 bits, del orden de 1e-8). `verify-quick.mjs`: 1917/0 en 3,7 s,
   con oráculo exhaustivo sin tabla. Las demás pruebas y `docker build`: OK.
+- **T2.2** (2026-10-07). `two-phase.js` (Kociemba propio, tablas en 0,6 s y
+  5,8 MB) y `optimize.js` (fusiona giros y reescribe pares opuestos como capa
+  media, cada reescritura verificada por simulación). `quickSolve` da 40 % del
+  tiempo a la búsqueda exacta y el resto a dos fases en el 3x3. Mezclas de 25
+  con 2 s: longitud mínima 14, mediana 19, máxima 22. Cota al cortar por tiempo
+  comprobada contra la distancia real (hallazgo de revisión). `verify-quick`:
+  2159/0; Docker sin caché OK. Nota para T2.3: con el valor por defecto el
+  botón tarda unos 2 s; conviene pasar `target` o un `timeMs` menor.

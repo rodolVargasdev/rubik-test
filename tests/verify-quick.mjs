@@ -1,13 +1,20 @@
 // Verifies the exact "quick solve" search (src/js/quick): every app button is
 // one move, rotations are free, and a result flagged optimal must be minimal.
 //
-//   node tests/verify-quick.mjs
+//   node tests/verify-quick.mjs            (a few seconds, what the Docker build runs)
+//   node tests/verify-quick.mjs --long 50  (also 50 long scrambles at the default budget)
 //
 // Minimality is checked against an independent oracle: a plain exhaustive
 // search over every button (no table, no canonical states, no pruning, no
 // dropped duplicate moves) that must find nothing shorter than the claim.
 import { CubeState, invertAlg, invertToken } from '../src/js/cube-core.js';
-import { quickSolve, prepare } from '../src/js/quick/search.js';
+import { quickSolve, exactSearch, prepare } from '../src/js/quick/search.js';
+import * as TP from '../src/js/quick/two-phase.js';
+import { optimizeSolution, replaySolves } from '../src/js/quick/optimize.js';
+
+const longIdx = process.argv.indexOf('--long');
+const LONG = longIdx > 0 ? Number(process.argv[longIdx + 1]) : 0;
+if (longIdx > 0 && !(LONG > 0)) { console.log('Uso: --long N con N entero positivo'); process.exit(2); }
 
 const t0 = performance.now();
 let ok = 0;
@@ -206,6 +213,190 @@ for (const [n, alg] of [[3, "R U F' D2 M E' S"], [4, "Rw U' r2 F d' M"]]) {
   check(tight.optimal === false && tight.moves === null && tight.lowerBound >= 1, 'presupuesto mínimo: debía devolver solo la cota');
 }
 
+// ---------- exact search: timeout lower bound ----------
+// A search that stops after layer k proves "no solution shorter than k + D1 + 1".
+// Forced to stop (maxLayer) on states whose true distance is proven by a full
+// run, the bound must equal completed + D1 + 1 exactly and never exceed it.
+{
+  let tight = 0; let inflatedCaught = 0; let runs = 0;
+  for (let i = 0; i < 12; i++) {
+    const state = make(3, scramble(3, 7, false));
+    const full = exactSearch(state, { timeMs: 20000, d1: 2 });
+    check(full.optimal, 'cota: la búsqueda completa no demostró el mínimo');
+    for (let cap = 0; cap + 2 + 1 <= full.length; cap++) {
+      const cut = exactSearch(state, { timeMs: 20000, d1: 2, maxLayer: cap });
+      runs++;
+      check(!cut.optimal && cut.completed === cap, `cota: con tope ${cap} completó ${cut.completed}`);
+      check(cut.lowerBound === cut.completed + cut.d1 + 1, `cota: ${cut.lowerBound} no es completed + D1 + 1 (${cut.completed + cut.d1 + 1})`);
+      check(cut.lowerBound <= full.length, `cota: ${cut.lowerBound} supera la distancia real ${full.length}`);
+      if (cut.lowerBound === full.length) tight++;
+      // Counter-check: the off-by-one formula would claim more than the truth.
+      if (cut.completed + cut.d1 + 2 > full.length) inflatedCaught++;
+    }
+  }
+  check(tight > 0, 'cota: ningún caso tocó la distancia real, la prueba no es ajustada');
+  check(inflatedCaught > 0, 'contraprueba: una cota completed + D1 + 2 debía superar la distancia real en algún caso');
+  console.log(`cota por tiempo agotado: ${runs} cortes, ${tight} ajustados a la distancia real, ${inflatedCaught} detectarían una cota inflada`);
+}
+
+// ---------- two-phase: coordinates ----------
+const tpStats = TP.prepareTwoPhase();
+console.log(`tablas de dos fases: ${tpStats.ms.toFixed(0)} ms, ${(tpStats.bytes / 1e6).toFixed(1)} MB`);
+const FACE_BTNS = TP.MOVE_NAMES;
+const P2_BTNS = FACE_BTNS.filter((_, m) => TP.P2_MOVES.includes(m));
+const walk = (len, names = FACE_BTNS) => Array.from({ length: len }, () => names[rnd(names.length)]).join(' ');
+const sameCoords = (a, b, keys) => keys.every((k) => a[k] === b[k]);
+const HOME = TP.coordsFromState(new CubeState(3));
+{
+  // Table step vs coordinates recomputed from CubeState after the same move.
+  let steps = 0;
+  const run = (bug) => {
+    let bad = 0;
+    for (let i = 0; i < 25; i++) {
+      const st = make(3, walk(1 + rnd(20)));
+      const c0 = TP.coordsFromState(st);
+      for (let m = 0; m < 18; m++) {
+        const next = TP.coordsFromState(st.clone().apply(FACE_BTNS[m]), bug);
+        if (!sameCoords(next, { ...c0, ...TP.stepPhase1(c0, m) }, ['twist', 'flip', 'slice'])) bad++;
+        steps++;
+      }
+    }
+    return bad;
+  };
+  check(run(null) === 0, 'coordenadas: la tabla de fase 1 no coincide con CubeState');
+  check(run('twist') > 0, 'contraprueba: la torsión defectuosa no se detectó en fase 1');
+  let bad2 = 0; let bugCp = 0; let bugEd = 0;
+  for (let i = 0; i < 25; i++) {
+    const st = make(3, walk(1 + rnd(20), P2_BTNS));
+    const c0 = TP.coordsFromState(st);
+    TP.P2_MOVES.forEach((m, k) => {
+      const moved = st.clone().apply(FACE_BTNS[m]);
+      const want = { ...c0, ...TP.stepPhase2(c0, k) };
+      if (!sameCoords(TP.coordsFromState(moved), want, ['cp', 'ud', 'sp'])) bad2++;
+      if (!sameCoords(TP.coordsFromState(moved, 'swapCorners'), want, ['cp'])) bugCp++;
+      if (!sameCoords(TP.coordsFromState(moved, 'swapEdges'), want, ['ud', 'sp'])) bugEd++;
+      // Phase 2 moves must keep the phase 1 coordinates at their solved values.
+      const c1 = TP.coordsFromState(moved);
+      if (c1.twist !== 0 || c1.flip !== 0 || c1.slice !== HOME.slice) bad2++;
+    });
+  }
+  check(bad2 === 0, `coordenadas: la tabla de fase 2 no coincide con CubeState (${bad2})`);
+  check(bugCp > 0, 'contraprueba: esquinas intercambiadas no se detectaron en fase 2');
+  check(bugEd > 0, 'contraprueba: aristas intercambiadas no se detectaron en fase 2');
+  console.log(`coordenadas: ${steps} pasos de fase 1 y los de fase 2 coinciden con CubeState`);
+}
+
+// ---------- two-phase: pruning admissibility ----------
+{
+  // True distance by plain iterative deepening over the move tables, no pruning.
+  const dist = (c, nm, step, done, maxD) => {
+    for (let d = 0; d <= maxD; d++) {
+      const go = (cc, left) => {
+        if (done(cc)) return true;
+        if (left === 0) return false;
+        for (let m = 0; m < nm; m++) if (go(step(cc, m), left - 1)) return true;
+        return false;
+      };
+      if (go(c, d)) return d;
+    }
+    return Infinity;
+  };
+  const p1Done = (c) => c.twist === 0 && c.flip === 0 && c.slice === HOME.slice;
+  const p2Done = (c) => c.cp === 0 && c.ud === 0 && c.sp === 0;
+  let inflated = 0; let n1 = 0; let n2 = 0; let exact1 = 0;
+  for (let i = 0; i < 30; i++) {
+    const k = 1 + rnd(4);
+    const c = TP.coordsFromState(make(3, walk(k)));
+    const d = dist(c, 18, (cc, m) => ({ ...cc, ...TP.stepPhase1(cc, m) }), p1Done, k);
+    const h = TP.phase1Bound(c);
+    check(h <= d, `poda fase 1: cota ${h} mayor que la distancia real ${d}`);
+    if (h === d) exact1++;
+    if (h + 3 > d) inflated++;
+    n1++;
+  }
+  for (let i = 0; i < 30; i++) {
+    const k = 1 + rnd(4);
+    const c = TP.coordsFromState(make(3, walk(k, P2_BTNS)));
+    const d = dist(c, TP.P2_MOVES.length, (cc, m) => ({ ...cc, ...TP.stepPhase2(cc, m) }), p2Done, k);
+    check(TP.phase2Bound(c) <= d, `poda fase 2: cota ${TP.phase2Bound(c)} mayor que la distancia real ${d}`);
+    n2++;
+  }
+  check(exact1 > 0, 'poda fase 1: nunca fue exacta, la tabla parece vacía');
+  check(inflated > 0, 'contraprueba: una cota inflada en 3 debía superar la distancia real');
+  console.log(`poda: ${n1} estados de fase 1 (${exact1} exactos) y ${n2} de fase 2, ninguna cota sobrepasa la distancia real`);
+}
+
+// ---------- post-optimization ----------
+{
+  // The inverse of a scramble is a solution by construction.
+  const sol = ['R', "L'", 'U2', 'F'];
+  const st = make(3, invertAlg(sol.join(' ')));
+  check(replaySolves(st, sol, []), 'optimización: la solución construida no arma el cubo');
+  const o = optimizeSolution(st, sol, []);
+  check(o.moves.length === 3 && o.rewrites === 1 && o.moves.some((t) => /^M/.test(t)), `optimización: R L' debía pasar a M, dio "${o.moves.join(' ')}"`);
+  check(replaySolves(st, o.moves, o.rotation), 'optimización: el reescrito no arma el cubo');
+  // Every axis and every pair of exponents (including ones that cannot be rewritten).
+  let rewritten = 0; let pairs = 0;
+  for (const [a, b] of [['R', 'L'], ['U', 'D'], ['F', 'B']]) {
+    for (const p of ['', "'", '2']) {
+      for (const q of ['', "'", '2']) {
+        const seq = [a + p, b + q, 'U', 'R', "F'", 'D2'];
+        const s2 = make(3, invertAlg(seq.join(' ')));
+        const r = optimizeSolution(s2, seq, []);
+        check(replaySolves(s2, r.moves, r.rotation) && r.moves.length <= seq.length, `optimización: ${seq.join(' ')} -> ${r.moves.join(' ')} no arma el cubo`);
+        rewritten += r.rewrites; pairs++;
+      }
+    }
+  }
+  check(rewritten >= 3, `optimización: solo ${rewritten} reescritos en ${pairs} pares`);
+  // Counter-checks: the replay guard rejects a broken rewrite.
+  const broken = optimizeSolution(st, sol, [], { mutate: (c) => ({ moves: c.moves.slice(0, -1), rotation: c.rotation }) });
+  check(broken.rewrites === 0 && broken.rejected >= 1 && broken.moves.join(' ') === sol.join(' '), `contraprueba: un reescrito roto no fue rechazado (${broken.moves.join(' ')})`);
+  const wrongRot = optimizeSolution(st, sol, [], { mutate: (c) => ({ moves: c.moves, rotation: ['y'] }) });
+  check(wrongRot.rewrites === 0 && wrongRot.rejected >= 1, 'contraprueba: una rotación final equivocada no fue rechazada');
+  check(!replaySolves(st, ['R', 'U'], []) && !replaySolves(st, sol, ['x']), 'contraprueba: replaySolves acepta una solución falsa');
+  console.log(`optimización: ${rewritten} reescrituras a botón de capa media en ${pairs} pares, todas con replay`);
+}
+
+// ---------- two-phase: long scrambles ----------
+{
+  const longRun = (count, timeMs, report) => {
+    const lens = []; const times = [];
+    for (let i = 0; i < count; i++) {
+      const alg = scramble(3, 25, true);
+      const state = make(3, alg);
+      const res = quickSolve(state, { timeMs });
+      const tag = `3x3 largo "${alg}"`;
+      check(res.source === 'two-phase' || (res.source === 'exact' && res.optimal), `${tag}: origen ${res.source}`);
+      check(res.moves && replayOk(state, res), `${tag}: la solución no deja el cubo armado y orientado`);
+      if (!res.moves) continue;
+      check(res.length <= 22, `${tag}: ${res.length} giros, más de 22`);
+      check(res.lowerBound <= res.length && res.lowerBound >= 1, `${tag}: cota ${res.lowerBound} incoherente con longitud ${res.length}`);
+      check(res.rotation.length <= 2, `${tag}: rotación final de ${res.rotation.length} giros`);
+      lens.push(res.length); times.push(res.ms);
+    }
+    if (report) {
+      const q = (a, f) => [...a].sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(f * a.length))];
+      console.log(`3x3 largo (${count} mezclas de 25, presupuesto ${timeMs} ms): longitud min ${q(lens, 0)}, mediana ${q(lens, 0.5)}, máx ${q(lens, 1)}; tiempo min ${q(times, 0).toFixed(0)}, mediana ${q(times, 0.5).toFixed(0)}, máx ${q(times, 1).toFixed(0)} ms`);
+      const hist = {};
+      lens.forEach((l) => { hist[l] = (hist[l] || 0) + 1; });
+      console.log('  histograma de longitudes:', Object.entries(hist).map(([l, c]) => `${l}:${c}`).join(' '));
+    }
+  };
+  longRun(5, 500, true);
+  // A 4x4 that is not proven stays without a solution (the UI offers the teaching solver).
+  const big = quickSolve(make(4, scramble(4, 25, true)), { timeMs: 200 });
+  check(big.source === null && big.moves === null && big.lowerBound >= 1, '4x4 largo: debía devolver solo la cota y source null');
+  // Easy states keep coming from the exact search.
+  const easy = quickSolve(make(3, scramble(3, 4, false)), { timeMs: 2000 });
+  check(easy.source === 'exact' && easy.optimal, '3x3 corto: debía venir de la búsqueda exacta');
+  // A state with moved centers is normalized and still solved by the same replay.
+  const mid = make(3, "M E S M2 E2 S2 R L' U D' F B' x y' R U F D L B M E S");
+  const midRes = quickSolve(mid, { timeMs: 500 });
+  check(midRes.moves && replayOk(mid, midRes), '3x3 con centros movidos: la solución no arma el cubo');
+  if (LONG) longRun(LONG, 2000, true);
+}
+
 // ---------- oracle edges ----------
 check(noShorterThan(make(3, "R R'"), 0), 'oráculo: una mezcla que se anula debe aceptar longitud 0');
 check(!noShorterThan(make(3, 'R'), null), 'oráculo: sin longitud (tiempo agotado) no demuestra nada');
@@ -221,7 +412,7 @@ check(noShorterThan(make(3, 'R U'), 2) && !noShorterThan(make(3, 'R U'), 3), 'or
   const state = make(3, "R U' M2");
   self.onmessage({ data: { state: serialize(state), timeMs: 2000 } });
   const r = replies.shift();
-  check(r && r.ok && r.optimal && r.length === 3 && replayOk(state, r), `worker: estado serializado mal resuelto (${JSON.stringify(r)})`);
+  check(r && r.ok && r.optimal && r.source === 'exact' && r.length === 3 && replayOk(state, r), `worker: estado serializado mal resuelto (${JSON.stringify(r)})`);
   self.onmessage({ data: { state: serialize(new CubeState(2)), timeMs: 100 } });
   const bad = replies.shift();
   check(bad && bad.ok === false && /3x3 y 4x4/.test(bad.error), `worker: un 2x2 debía responder ok:false con motivo (${JSON.stringify(bad)})`);
