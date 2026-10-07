@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cubo paso a paso</title>
+  <meta name="description" content="Guía visual en 3D para armar el cubo 3x3 por capas y el 4x4 por reducción, giro a giro.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Crect x='1' y='1' width='8' height='8' rx='2' fill='%23FFD21F'/%3E%3Crect x='11' y='1' width='8' height='8' rx='2' fill='%2300A651'/%3E%3Crect x='21' y='1' width='8' height='8' rx='2' fill='%23D3203A'/%3E%3Crect x='1' y='11' width='8' height='8' rx='2' fill='%231258D6'/%3E%3Crect x='11' y='11' width='8' height='8' rx='2' fill='%23FFD21F'/%3E%3Crect x='21' y='11' width='8' height='8' rx='2' fill='%23FF6A13'/%3E%3Crect x='1' y='21' width='8' height='8' rx='2' fill='%23D3203A'/%3E%3Crect x='11' y='21' width='8' height='8' rx='2' fill='%2315193A'/%3E%3Crect x='21' y='21' width='8' height='8' rx='2' fill='%2300A651'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <a class="skip" href="#main">Saltar al contenido</a>
+  <header class="topbar">
+    <a class="brand" href="#/" aria-label="Inicio">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span>Cubo paso a paso</span>
+    </a>
+    <nav class="nav" aria-label="Secciones">
+      <a href="#/notacion">Notación</a>
+      <a href="#/3x3">3x3</a>
+      <a href="#/4x4">4x4</a>
+      <a href="#/por-que">Por qué</a>
+    </nav>
+  </header>
+  <main id="main" tabindex="-1"></main>
+  <noscript><p class="noscript">Esta guía necesita JavaScript para mostrar el cubo en 3D.</p></noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
