@@ -25,7 +25,9 @@ if (isMainThread && sampleAt >= 0 && !(Number.isInteger(SAMPLE) && SAMPLE > 0)) 
 const SELFTEST = (args.find((a) => a.startsWith('--selftest=')) || '').slice('--selftest='.length);
 const which = args.find((a, i) => !(sampleAt >= 0 && i === sampleAt + 1) && ['3', '4', 'all'].includes(a)) || 'all';
 const SIZES = which === 'all' ? [3, 4] : [Number(which)];
-const JOBS = Math.max(1, availableParallelism());
+// Sample runs (Docker) and sabotaged self-tests stay small so the build does
+// not scale with the host's cores; only the exhaustive run uses every core.
+const JOBS = Math.max(1, SAMPLE > 0 || SELFTEST ? Math.min(4, availableParallelism()) : availableParallelism());
 
 let failures = 0;
 let passes = 0;
