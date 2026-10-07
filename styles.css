@@ -199,6 +199,13 @@ p { margin: 0; }
 .sv-step.ok .sv-dot { background: var(--ink); color: #fff; }
 .sv-step.skipped strong { color: var(--ink-2); }
 .sv-step.skipped .sv-dot { border-style: dashed; color: var(--ink-2); }
+.sv-status {
+  width: fit-content; padding: 4px 12px; border-radius: 999px; border: 1.5px solid var(--ink);
+  background: var(--paper-2); font-weight: 700; font-size: 0.92rem;
+}
+.sv-extra { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip-hold { border-style: dashed; border-color: var(--ink-2); color: var(--ink); background: var(--card); font-size: 0.98rem; }
+.chip-hold.now { border-style: solid; }
 .cap-sub { font: 500 0.92rem/1.35 var(--body); color: var(--ink-2); }
 
 /* A sticky column taller than the screen hides its bottom: release it while

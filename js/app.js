@@ -402,8 +402,8 @@ function viewGuide(guide) {
     getN: () => guide.n,
     idleSpeed: store.get(speedKey, 1),
     stageEl: $('#g-stage'),
-    setCaption: (text, sub) => {
-      $('#cap-step').textContent = sub ? `Armado automático: ${text}` : 'Armado automático';
+    setCaption: (text, sub, title) => {
+      $('#cap-step').textContent = title || (sub ? `Armado automático: ${text}` : 'Armado automático');
       $('#cap-label').textContent = sub || text;
     },
     onStart: () => {
