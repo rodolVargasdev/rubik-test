@@ -79,16 +79,62 @@ sesión anterior; los estados se pueden reproducir con los algoritmos citados.
      propia (tetraedro); su espacio de estados es chico y admite una tabla
      óptima completa.
 
-## Decisión pendiente
+## Decisión de flujo (2026-10-07)
 
-El trabajo cruza los umbrales de SDD (más de 5 archivos en varias capas,
-requerimiento escrito, se retoma otro día). Se propuso entrar por SDD y el
-usuario aún no lo decidió: preguntarlo al retomar, en una línea.
+Se propuso SDD; el usuario delegó la decisión ("lo más rápido y con más
+calidad"). Se entra por **ODD sobre este documento**, sin SDD: el plan, el
+requerimiento escrito y la continuidad entre PCs ya viven aquí, y la calidad la
+dan las pruebas exhaustivas con contraprueba, no artefactos de especificación.
+Las decisiones de producto (métrica del armado rápido, forma del editor) se
+preguntan al llegar a cada punto, una por vez.
+
+- Rama: `feat/fase-2-paridades` (desde `main` @ `bea72df`).
+- TDD: apagado (no hay configuración que lo active). Se corren las pruebas
+  funcionales de "Cómo verificar"; la prueba nueva se escribe antes que la
+  corrección y debe fallar primero sobre la narración actual.
+- CI: apagado antes de la versión 1 (regla del usuario); solo existe el
+  despliegue de Pages.
+
+## Tareas
+
+- [x] **T1.1** Prueba exhaustiva de la última capa (`tests/verify-last-layer.mjs`):
+  enumerar por BFS todos los estados de la última capa con colores (3x3:
+  62 208; 4x4 reducido: 248 832), resolver cada uno y comprobar armado, orden
+  de pasos y rótulo de paridad contra un oráculo independiente. Contrapruebas:
+  el conteo exacto del BFS y un oráculo que distingue un estado con paridad de
+  uno sin ella. Muestra dentro del Docker. Ruta: delegada (2 archivos no
+  triviales: prueba y solucionador).
+- [x] **T1.2** Narración de la paridad PLL según el caso real (aristas opuestas,
+  aristas vecinas, esquinas vecinas, esquinas en diagonal, mixto) y rótulo del
+  paso. Mismo commit que T1.1.
+- [ ] **T1.3** Guía 4x4: un caso animado por familia de paridad PLL, con su
+  entrada en `EXPECT`. Ruta: delegada (contenido + prueba).
+- [ ] **T2** Armado rápido. Antes: explicar límites de optimalidad y decidir la
+  métrica con el usuario.
+- [ ] **T3** Editor para pintar el cubo. Antes: decidir con el usuario la forma.
+- [ ] **T4** Registro de rompecabezas.
+
+## Evidencia
+
+- **T1.1 + T1.2** (2026-10-07). RED antes de corregir (`verify-last-layer.mjs 4
+  --sample 2000`): 972 fallas, todas de narración (el solucionador ya armaba
+  todo). Después:
+  - `verify-last-layer.mjs 3`: 62 208 estados, 497 676 correctas, 0 fallas, 24 s.
+  - `verify-last-layer.mjs 4`: 248 832 estados, 0 fallas, 262 s con 20 hilos.
+    Casos PLL narrados: aristas opuestas 3456, aristas vecinas 6912, esquinas
+    vecinas 6912, esquinas en diagonal 3456, mixto 103 680.
+  - `verify-last-layer.mjs all --sample 300`: 5003 correctas, 0 fallas.
+  - `verify-algorithms.mjs`: 159/0. `verify-solver.mjs 60 8`: 278/0.
+  - Hallazgo: el caso mixto (esquinas y aristas desordenadas a la vez) es el
+    83 % de los estados con paridad PLL; la guía debería decirlo (T1.3).
 
 ## Cómo verificar el estado actual
 
 ```bash
 node tests/verify-algorithms.mjs
 node tests/verify-solver.mjs 300 40
+node tests/verify-last-layer.mjs all --sample 300
+# Corrida larga y exhaustiva (62 208 + 248 832 estados; unos 6 min con 20 hilos):
+node tests/verify-last-layer.mjs all
 docker build -t rubik-spa .
 ```

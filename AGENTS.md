@@ -41,5 +41,8 @@ animaciones three.js. Sin build: módulos ES servidos tal cual desde `src/`.
 ```bash
 node tests/verify-algorithms.mjs
 node tests/verify-solver.mjs 300 40
+node tests/verify-last-layer.mjs all --sample 300
+# Corrida larga y exhaustiva (62 208 + 248 832 estados; unos 6 min con 20 hilos), aparte del build:
+node tests/verify-last-layer.mjs all
 docker build -t rubik-spa .
 ```

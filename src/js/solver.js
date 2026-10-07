@@ -2,7 +2,7 @@
 // algorithms the guide teaches, and narrates each decision. Every choice is
 // found by simulation: among the guide's moves, take the shortest one that
 // advances the step without breaking what is already solved.
-import { CubeState, parseMove, normalFace, tokenize, invertToken, FACE_NAMES } from './cube-core.js';
+import { CubeState, parseMove, normalFace, tokenize, invertToken, FACE_NAMES, FACE_NORMALS } from './cube-core.js';
 import { ALGS } from './content.js';
 
 export const STEPS = {
@@ -26,7 +26,7 @@ export const STEPS = {
     ['segunda-capa', 'Segunda capa'],
     ['paridad-oll', 'Paridad: arista volteada'],
     ['cruz-amarilla', 'Cruz amarilla'],
-    ['paridad-pll', 'Paridad: aristas intercambiadas'],
+    ['paridad-pll', 'Paridad: dos piezas intercambiadas'],
     ['aristas-amarillas', 'Aristas amarillas'],
     ['posicion-esquinas', 'Esquinas amarillas a su lugar'],
     ['girar-esquinas', 'Girar las esquinas amarillas'],
@@ -358,6 +358,51 @@ const placed = (s, c, cf) => {
   return c.pos.every((v, i) => Math.sign(v) === Math.sign(want[i]));
 };
 
+// Which pieces are swapped when the PLL parity shows up. Rings list the top
+// slots in turning order as "x,z" signs (0 on an edge axis); a piece is read
+// from its current slot and the slot of its colors. With the best common U
+// alignment, exactly two pieces of one kind out of place and the other kind
+// placed names the case; anything else is "mixed".
+const CORNER_RING = ['1,1', '1,-1', '-1,-1', '-1,1'];
+const EDGE_RING = ['0,1', '1,0', '0,-1', '-1,0'];
+const PARITY_TEXT = {
+  edgesOpposite: 'Dos aristas opuestas intercambiadas',
+  edgesAdjacent: 'Dos aristas vecinas intercambiadas',
+  cornersAdjacent: 'Dos esquinas vecinas intercambiadas, con las aristas bien',
+  cornersDiagonal: 'Dos esquinas en diagonal intercambiadas, con las aristas bien',
+  mixed: 'Esquinas y aristas desordenadas a la vez (caso mixto)',
+};
+// Why it cannot happen on a 3x3 and why the same algorithm still fixes every
+// case: it always swaps two edges, and the 3x3 steps finish the rest.
+const parityLabel = (kind) => `${PARITY_TEXT[kind]}: imposible en un 3x3`;
+
+function parityCase(s) {
+  const m = s.n - 1;
+  const cf = colorFaces(s);
+  const slotOf = (v) => `${Math.abs(v[0]) === m ? Math.sign(v[0]) : 0},${Math.abs(v[2]) === m ? Math.sign(v[2]) : 0}`;
+  const homeOf = (c) => {
+    const want = [0, 0, 0];
+    for (const f of c.faces) { const v = FACE_NORMALS[cf[f]]; for (let i = 0; i < 3; i++) want[i] += v[i]; }
+    return `${Math.sign(want[0])},${Math.sign(want[2])}`;
+  };
+  const ring = (pieces, order) => {
+    const h = [-1, -1, -1, -1];
+    for (const c of pieces) { const at = order.indexOf(slotOf(c.pos)); if (h[at] < 0) h[at] = order.indexOf(homeOf(c)); }
+    return h;
+  };
+  const hc = ring(topCorners(s), CORNER_RING);
+  const he = ring(topEdges(s), EDGE_RING);
+  const miss = (h, k) => [0, 1, 2, 3].filter((j) => h[j] !== (j + k) % 4);
+  for (let k = 0; k < 4; k++) {
+    const mc = miss(hc, k);
+    const me = miss(he, k);
+    const opposite = (a) => (a[0] - a[1] + 4) % 4 === 2;
+    if (!mc.length && me.length === 2) return opposite(me) ? 'edgesOpposite' : 'edgesAdjacent';
+    if (!me.length && mc.length === 2) return opposite(mc) ? 'cornersDiagonal' : 'cornersAdjacent';
+  }
+  return 'mixed';
+}
+
 function lastLayerPerm(p, EDGE, CORNER) {
   const s = p.s;
   const keep = f2lIds(s);
@@ -375,11 +420,12 @@ function lastLayerPerm(p, EDGE, CORNER) {
   if (s.n === 4) {
     if (solvable()) p.skip('paridad-pll', 'No apareció: aristas y esquinas se pueden ordenar sin ella.');
     else {
+      const kind = parityCase(s);
       const c = first(s, UT.map((u) => cand([{ moves: u }, { moves: T(ALGS.PLL_PARITY) }])), solvable);
       if (!c) throw new Error('paridad PLL sin solución');
-      p.push('paridad-pll', 'Dos aristas quedaron intercambiadas: imposible en un 3x3', [
+      p.push('paridad-pll', parityLabel(kind), [
         { label: 'Gira arriba', moves: c.flat.slice(0, c.flat.length - T(ALGS.PLL_PARITY).length) },
-        { label: 'Algoritmo de paridad de permutación', moves: T(ALGS.PLL_PARITY) },
+        { label: 'Paridad: cambia dos aristas; los pasos del 3x3 ordenan el resto', moves: T(ALGS.PLL_PARITY) },
       ]);
     }
   }
