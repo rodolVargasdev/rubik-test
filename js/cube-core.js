@@ -43,15 +43,24 @@ export function normalFace(v) {
   return null;
 }
 
-// One +90 degree quarter turn about an axis, applied `q` times (q in 0..3).
+// Rotates `v` by q quarter turns (+90 degrees each, right-hand rule) about
+// an axis. Closed form instead of a loop: the solver calls this millions of
+// times.
 export function rotateVec(v, axis, q) {
-  let [x, y, z] = v;
-  for (let i = 0; i < ((q % 4) + 4) % 4; i++) {
-    if (axis === 0) [y, z] = [-z, y];
-    else if (axis === 1) [x, z] = [z, -x];
-    else [x, y] = [-y, x];
-  }
-  return [x, y, z];
+  const out = v.slice();
+  rotateInPlace(out, axis, q);
+  return out;
+}
+
+function rotateInPlace(v, axis, q) {
+  const k = ((q % 4) + 4) % 4;
+  if (!k) return;
+  const x = v[0]; const y = v[1]; const z = v[2];
+  if (axis === 0) {
+    if (k === 1) { v[1] = -z; v[2] = y; } else if (k === 2) { v[1] = -y; v[2] = -z; } else { v[1] = z; v[2] = -y; }
+  } else if (axis === 1) {
+    if (k === 1) { v[0] = z; v[2] = -x; } else if (k === 2) { v[0] = -x; v[2] = -z; } else { v[0] = -z; v[2] = x; }
+  } else if (k === 1) { v[0] = -y; v[1] = x; } else if (k === 2) { v[0] = -x; v[1] = -y; } else { v[0] = y; v[1] = -x; }
 }
 
 const TOKEN_RE = /^([URFDLB]w|[URFDLB]|[urfdlb]|[MES]|[xyz])(2'|2|')?$/;
@@ -154,9 +163,10 @@ export class CubeState {
 
   applyMove(move) {
     const m = typeof move === 'string' ? parseMove(move, this.n) : move;
-    for (const c of this.affected(m)) {
-      c.pos = rotateVec(c.pos, m.axis, m.q);
-      c.basis = c.basis.map((b) => rotateVec(b, m.axis, m.q));
+    for (const c of this.cubies) {
+      if (m.layers && !m.layers.includes(c.pos[m.axis])) continue;
+      rotateInPlace(c.pos, m.axis, m.q);
+      for (const b of c.basis) rotateInPlace(b, m.axis, m.q);
     }
     return m;
   }
