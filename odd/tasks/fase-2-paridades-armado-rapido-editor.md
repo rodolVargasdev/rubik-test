@@ -124,7 +124,7 @@ preguntan al llegar a cada punto, una por vez.
   media vuelta incluida; 4x4: cualquier bloque de capas contiguas; rotaciones
   x/y/z cuentan cero). Así una mezcla de 3 botones se resuelve en 3 como máximo.
   Sin dependencias nuevas: búsqueda propia, verificable por simulación.
-  - [ ] **T2.1** Búsqueda exacta por encuentro a mitad de camino (ambos
+  - [x] **T2.1** Búsqueda exacta por encuentro a mitad de camino (ambos
     tamaños) en un worker con límite de tiempo: tabla de estados a profundidad
     <= 3 desde el armado y búsqueda desde la mezcla hasta completar. Demuestra
     el mínimo cuando lo encuentra. Prueba: mezclas de k botones dan solución
@@ -177,3 +177,11 @@ docker build -t rubik-spa .
   oráculo por intercambio aplicado: coincide con el solucionador en los 248 832
   estados. `all --sample 300`: 5128/0 en 8 s; `3`: 497 725/0 en 22 s; `4`:
   2 115 212/0 en 201 s; `verify-algorithms`: 180/0; `docker build` OK.
+- **T2.1** (2026-10-07). `src/js/quick/` (métrica, búsqueda) y
+  `quick-worker.js`. Generadores: 27 en 3x3; 54 en 4x4 (63 botones menos 9
+  iguales módulo rotación). Tabla D1=4 en 3x3 (174 604 estados, 0,1 s) y D1=3
+  en 4x4 (80 774, 0,1 s). Mínimo demostrado medido: 3x3 hasta 9 giros en 2 s y
+  10 en 10 s; 4x4 hasta 7 en 2 s. Cada acierto se reconstruye y se verifica por
+  simulación; el riesgo residual es un falso negativo por choque de hash
+  (Zobrist de 64 bits, del orden de 1e-8). `verify-quick.mjs`: 1917/0 en 3,7 s,
+  con oráculo exhaustivo sin tabla. Las demás pruebas y `docker build`: OK.
