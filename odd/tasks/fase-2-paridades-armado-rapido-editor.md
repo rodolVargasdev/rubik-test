@@ -139,7 +139,7 @@ preguntan al llegar a cada punto, una por vez.
     lista de giros con su cuenta y la etiqueta "mínimo demostrado" o la cota, y
     la ejecuta animada. Revisión en navegador.
 - [x] **T3** Editor para pintar el cubo. Forma decidida: red 2D más vista 3D en vivo.
-- [ ] **T4** Registro de rompecabezas.
+- [x] **T4** Registro de rompecabezas.
 
 ## Evidencia
 
@@ -213,3 +213,13 @@ docker build -t rubik-spa .
   pintar un sticker muestra el error con la pieza y resalta 11 stickers,
   corregirlo habilita los botones, "Desde la vista actual" carga y el rápido
   da 3 giros, ancho 502 sin desplazamiento horizontal, sin errores de consola.
+- **T4** (2026-10-07). `src/js/puzzles/registry.js` (`registerPuzzle`,
+  `getPuzzle`, `listPuzzles`, `findPuzzle`) y `puzzles/index.js` con
+  `registerNxN` (cube3, cube4). Rutas y enlaces de las guías, selector de
+  tamaño de notación y editor, pasos del armado automático y parámetros del
+  rápido leen del registro. `verify-registry.mjs` 40/0 (campos, ambos
+  solucionadores resuelven una mezcla, duplicado y definiciones incompletas
+  lanzan, contraprueba de alta válida). Sección "Agregar un rompecabezas" en
+  `AGENTS.md`. Navegador: todas las rutas cargan, el rápido da 3 giros, el
+  automático lista 9 pasos, sin errores de consola. `docker build -t
+  rubik-spa .` OK con los seis arneses en la etapa de verificación.

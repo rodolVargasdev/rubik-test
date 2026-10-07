@@ -39,6 +39,23 @@ animaciones three.js. Sin build: módulos ES servidos tal cual desde `src/`.
   `quick-worker.js` (2 s, `target` 20 en 3x3).
 - **Textos de la interfaz en español neutro**, sin voseo y sin tipografía de IA.
 
+## Agregar un rompecabezas
+Todo vive en `src/js/puzzles/registry.js`; las vistas leen de ahí (rutas y
+enlaces de las guías, selector de tamaño de notación y editor, pasos y
+parámetros del armado rápido). `registerPuzzle` exige: `id`, `name`, `kind`,
+`n`, `createState`, `steps`, `solvers` (`auto`, `quick`, `quickOptions`);
+`guide` y `editor` son opcionales. Repite un id y lanza.
+- **Familia NxN:** un 5x5 se agrega llamando una vez a `registerNxN(5, {...})`
+  en `puzzles/index.js` cuando existan su guía (`content.js`) y su solucionador
+  de enseñanza (`solver.js`); modelo, visor, editor y búsqueda rápida ya son
+  genéricos. La búsqueda rápida solo cubre 3x3 y 4x4 hoy (`modelFor`).
+- **Pyraminx:** necesita su propio modelo de estado y la geometría de un
+  tetraedro en el visor (otro `kind`). Su espacio de estados es chico
+  (933 120 posiciones sin contar las puntas), así que admite una tabla óptima
+  completa por BFS en lugar de la búsqueda por encuentro a mitad de camino.
+- Ningún puzzle entra sin su prueba: `tests/verify-registry.mjs` comprueba que
+  cada uno resuelve una mezcla con ambos solucionadores.
+
 ## Trabajo en curso
 - Fase 2 (paridades exhaustivas, armado rápido, editor para pintar el cubo,
   registro de rompecabezas): ver `odd/tasks/fase-2-paridades-armado-rapido-editor.md`.
@@ -52,6 +69,7 @@ node tests/verify-solver.mjs 300 40
 node tests/verify-last-layer.mjs all --sample 300
 node tests/verify-quick.mjs
 node tests/verify-editor.mjs
+node tests/verify-registry.mjs
 # Corrida larga y exhaustiva (62 208 + 248 832 estados; unos 6 min con 20 hilos), aparte del build:
 node tests/verify-last-layer.mjs all
 docker build -t rubik-spa .

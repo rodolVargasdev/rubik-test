@@ -1,9 +1,10 @@
 import { Stage, CubeView, AlgPlayer, changedPieces } from './viewer.js';
-import { GUIDE_3, GUIDE_4, buildCase, groupRanges, NOTATION, METHOD_LOAD, MASKS, ALGS } from './content.js';
+import { buildCase, groupRanges, NOTATION, METHOD_LOAD, MASKS, ALGS } from './content.js';
 import { CubeState, tokenize, invertAlg, FACE_COLORS } from './cube-core.js';
 import { mountAutoSolve } from './autosolve.js';
 import { mountEditor } from './editor/editor-view.js';
 import { serialize } from './solver.js';
+import { listPuzzles } from './puzzles/index.js';
 
 const main = document.getElementById('main');
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -51,10 +52,17 @@ const routes = {
   '': viewHome,
   notacion: viewNotation,
   pintar: () => mountEditor(main, { store, shared }),
-  '3x3': () => viewGuide(GUIDE_3),
-  '4x4': () => viewGuide(GUIDE_4),
   'por-que': viewWhy,
 };
+
+// One guide route and nav link per registered puzzle that has a guide.
+for (const p of listPuzzles().filter((x) => x.guide)) {
+  routes[p.name] = () => viewGuide(p.guide);
+  const a = document.createElement('a');
+  a.href = `#/${p.name}`;
+  a.textContent = p.name;
+  document.querySelector('.nav a[href="#/por-que"]').before(a);
+}
 
 function route() {
   const key = location.hash.replace(/^#\/?/, '').split('/')[0];
@@ -155,7 +163,7 @@ function viewNotation() {
     </div>
     <div class="panel">
       <div class="seg" role="group" aria-label="Tamaño del cubo">
-        <button data-n="3">3x3</button><button data-n="4">4x4</button>
+        ${listPuzzles().filter((p) => p.kind === 'nxn').map((p) => `<button data-n="${p.n}">${p.name}</button>`).join('')}
       </div>
       <h2>Las seis caras</h2>
       <ul class="faces">
