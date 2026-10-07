@@ -1,11 +1,13 @@
-// "Armado automático" widget, shared by the notation view and both guides.
-// It renders its own bar (button + speed) and narration panel inside `host`
-// and drives whatever CubeView `getView()` returns.
+// "Armado automático" and "Armado rápido" widget, shared by the notation view,
+// both guides and the editor. It renders its own bar (buttons + speed) and
+// narration panel inside `host` and drives whatever CubeView `getView()` returns.
 import { solve, serialize, STEPS } from './solver.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const movesOf = (segs) => segs.reduce((t, x) => t + (x.groups ? x.groups.reduce((u, g) => u + g.moves.length, 0) : 0), 0);
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const QUICK_MS = 2000;
+const QUICK_TARGET = { 3: 20, 4: 0 };
 
 function safeGet(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
@@ -18,6 +20,7 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
   host.innerHTML = `
     <div class="solver-bar">
       <button class="btn btn-primary as-run" title="Arma el cubo desde donde está, paso a paso y con el método de la guía">Armado automático</button>
+      <button class="btn as-quick" title="El camino más corto: cada botón cuenta un giro; las rotaciones no cuentan">Armado rápido</button>
       <div class="speed" role="group" aria-label="Velocidad del armado">
         <button data-s="0.6">Lento</button><button data-s="1.3">Normal</button><button data-s="3.2">Rápido</button>
       </div>
@@ -25,17 +28,27 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
     <section class="solver" hidden aria-live="polite">
       <div class="sv-head"><strong class="sv-title"></strong><span class="sv-count"></span></div>
       <p class="sv-label"></p>
+      <p class="sv-status" hidden></p>
       <div class="alg sv-alg"></div>
+      <div class="sv-extra" hidden></div>
       <ol class="sv-steps"></ol>
     </section>`;
   const q = (s) => host.querySelector(s);
   const qa = (s) => [...host.querySelectorAll(s)];
   const runBtn = q('.as-run');
+  const quickBtn = q('.as-quick');
   const panel = q('.solver');
+  const runTitle = runBtn.title;
+  const quickTitle = quickBtn.title;
 
   let solving = false;
+  let kind = null; // 'auto' | 'quick' while solving
+  let searching = false; // the quick search is still running in its worker
+  let enabled = true;
   let runId = 0;
   let worker = null;
+  let quickWorker = null;
+  let cancelSearch = null;
   const speedKey = 'rubik-auto-speed';
   let speed = safeGet(speedKey, 1.3);
   const markSpeed = () => qa('.speed button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.s) === speed)));
@@ -49,16 +62,29 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
     if (solving) getView().speed = sp;
   });
 
-  function setSolving(on) {
+  function refreshButtons() {
+    runBtn.textContent = solving && kind === 'auto' ? 'Detener' : 'Armado automático';
+    quickBtn.textContent = solving && kind === 'quick' ? (searching ? 'Cancelar' : 'Detener') : 'Armado rápido';
+    runBtn.classList.toggle('btn-stop', solving && kind === 'auto');
+    quickBtn.classList.toggle('btn-stop', solving && kind === 'quick');
+    runBtn.disabled = solving ? kind !== 'auto' : !enabled;
+    quickBtn.disabled = solving ? kind !== 'quick' : !enabled;
+    runBtn.title = enabled ? runTitle : 'Disponible cuando el cubo sea válido';
+    quickBtn.title = enabled ? quickTitle : 'Disponible cuando el cubo sea válido';
+  }
+
+  function setSolving(on, which = 'auto') {
     solving = on;
-    runBtn.textContent = on ? 'Detener' : 'Armado automático';
-    runBtn.classList.toggle('btn-stop', on);
+    kind = on ? which : null;
+    if (!on) searching = false;
+    refreshButtons();
     if (!on) getView().speed = idleSpeed;
   }
 
   function stop(message = 'Armado detenido. Puedes seguir girando o volver a pedirlo.') {
     if (!solving) return false;
     runId++;
+    if (searching) { cancelSearch?.(); panel.hidden = true; }
     setSolving(false);
     const view = getView();
     view.setState(view.state);
@@ -88,7 +114,7 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
     const view = getView();
     const stepTitle = (id) => STEPS[n].find(([k]) => k === id)?.[1] || id;
     const my = ++runId;
-    setSolving(true);
+    setSolving(true, 'auto');
     onStart();
     // On narrow screens the stage scrolls away; bring it back into view.
     if (stageEl && window.innerWidth < 980) stageEl.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' });
@@ -100,6 +126,9 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
     if (!res.ok) { setSolving(false); setCaption(`No se encontró un plan: ${res.error}`); onEnd({ completed: false }); return; }
 
     panel.hidden = false;
+    q('.sv-status').hidden = true;
+    q('.sv-extra').hidden = true;
+    q('.sv-steps').hidden = false;
     q('.sv-steps').innerHTML = STEPS[n].map(([id, title], i) => {
       const segs = res.segments.filter((x) => x.step === id);
       const skipped = segs.length > 0 && segs.every((x) => x.skipped);
@@ -165,12 +194,144 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
     setSolving(false);
     onEnd({ completed: true });
   }
+
+  // ---------- quick solve ----------
+  // The search runs in a module worker; cancelling terminates it, and the next
+  // search creates a fresh one. If workers are unavailable it runs inline.
+  function computeQuick(state, n) {
+    const opts = { timeMs: QUICK_MS, target: QUICK_TARGET[n] ?? 0 };
+    return new Promise((resolve) => {
+      cancelSearch = () => { quickWorker?.terminate(); quickWorker = null; cancelSearch = null; resolve({ cancelled: true }); };
+      const inline = async () => {
+        try {
+          const { quickSolve } = await import('./quick/search.js');
+          cancelSearch = null;
+          resolve({ ok: true, ...quickSolve(state, opts) });
+        } catch (err) { cancelSearch = null; resolve({ ok: false, error: err.message }); }
+      };
+      try {
+        quickWorker ||= new Worker(new URL('./quick-worker.js', import.meta.url), { type: 'module' });
+        quickWorker.onmessage = (e) => { if (e.data.warmed) return; cancelSearch = null; resolve(e.data); };
+        quickWorker.onerror = () => { quickWorker = null; inline(); };
+        quickWorker.postMessage({ state: serialize(state), ...opts });
+      } catch { inline(); }
+    });
+  }
+
+  // Builds the lookup tables in the worker before the first click.
+  const warmedFor = new Set();
+  function warmUp() {
+    const n = getN();
+    if (warmedFor.has(n) || solving) return;
+    warmedFor.add(n);
+    try {
+      quickWorker ||= new Worker(new URL('./quick-worker.js', import.meta.url), { type: 'module' });
+      quickWorker.postMessage({ warm: n });
+    } catch { /* the first click falls back to the main thread */ }
+  }
+  quickBtn.addEventListener('pointerenter', warmUp);
+  quickBtn.addEventListener('focus', warmUp);
+
+  function quickHead(count, label, status = '') {
+    panel.hidden = false;
+    q('.sv-steps').hidden = true;
+    q('.sv-extra').hidden = true;
+    q('.sv-title').textContent = 'Armado rápido';
+    q('.sv-count').textContent = count;
+    q('.sv-label').textContent = label;
+    const st = q('.sv-status');
+    st.textContent = status;
+    st.hidden = !status;
+  }
+
+  async function runQuick() {
+    if (solving) { stop(); return; }
+    const n = getN();
+    const view = getView();
+    const my = ++runId;
+    setSolving(true, 'quick');
+    searching = true;
+    refreshButtons();
+    onStart();
+    if (stageEl && window.innerWidth < 980) stageEl.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' });
+    await view.queue;
+    if (my !== runId) return;
+    quickHead('', 'Buscando el camino más corto...');
+    q('.sv-alg').innerHTML = '';
+    setCaption('Buscando el camino más corto...', '', 'Armado rápido');
+    const res = await computeQuick(view.state.clone(), n);
+    if (my !== runId) return;
+    searching = false;
+    const finish = (completed, caption) => {
+      setSolving(false);
+      if (caption) setCaption(caption, '', 'Armado rápido');
+      onEnd({ completed });
+    };
+    if (!res.ok) { quickHead('', `No se encontró un camino: ${res.error}`); q('.sv-alg').innerHTML = ''; finish(false); return; }
+
+    if (res.moves === null) {
+      quickHead('', '', `Sin camino corto demostrable a tiempo (al menos ${res.lowerBound} giros)`);
+      q('.sv-alg').innerHTML = '';
+      const extra = q('.sv-extra');
+      extra.hidden = false;
+      extra.innerHTML = '<button class="btn btn-small as-fallback">Usar el armado automático</button>';
+      extra.querySelector('.as-fallback').addEventListener('click', () => { if (!solving) run(); });
+      finish(false, 'Sin camino corto demostrable a tiempo');
+      return;
+    }
+
+    const moves = res.moves;
+    const rotation = res.rotation || [];
+    if (moves.length === 0 && rotation.length === 0) {
+      quickHead('0 giros', 'El cubo ya está armado');
+      q('.sv-alg').innerHTML = '';
+      finish(true, 'El cubo ya está armado');
+      return;
+    }
+    quickHead(`${moves.length} giros`, '', res.optimal ? 'Mínimo demostrado' : `La más corta encontrada: entre ${res.lowerBound} y ${res.length} giros`);
+    const movesHtml = moves.length
+      ? `<div class="group"><div class="chips">${moves.map((t, k) => `<span class="chip" data-k="${k}">${t}</span>`).join('')}</div><span class="glabel">Giros</span></div>`
+      : '';
+    const holdHtml = rotation.length
+      ? `<div class="group"><div class="chips"><span class="chip chip-hold">Sostener: ${rotation.join(' ')}</span></div><span class="glabel">No cuenta como giro</span></div>`
+      : '';
+    q('.sv-alg').innerHTML = movesHtml + holdHtml;
+    const chips = qa('.sv-alg .chip[data-k]');
+    const hold = q('.sv-alg .chip-hold');
+    setCaption(`${moves.length} giros`, '', 'Armado rápido');
+    view.speed = speed;
+    for (let i = 0; i < moves.length; i++) {
+      if (my !== runId) return;
+      chips.forEach((c, j) => { c.classList.toggle('done', j < i); c.classList.toggle('now', j === i); });
+      const ok = await view.turn(moves[i]);
+      if (!ok || my !== runId) return;
+      q('.sv-count').textContent = `Giro ${i + 1} de ${moves.length}`;
+    }
+    chips.forEach((c) => { c.classList.remove('now'); c.classList.add('done'); });
+    if (hold) {
+      hold.classList.add('now');
+      for (const t of rotation) {
+        if (my !== runId) return;
+        const ok = await view.turn(t);
+        if (!ok || my !== runId) return;
+      }
+      hold.classList.remove('now');
+      hold.classList.add('done');
+    }
+    if (my !== runId) return;
+    q('.sv-count').textContent = `${moves.length} giros`;
+    finish(true, `Armado en ${moves.length} giros`);
+  }
+
   runBtn.addEventListener('click', run);
+  quickBtn.addEventListener('click', runQuick);
+  refreshButtons();
 
   return {
     stop,
     isSolving: () => solving,
     hidePanel: () => { panel.hidden = true; },
-    dispose: () => { runId++; worker?.terminate(); },
+    setEnabled: (on) => { enabled = on; refreshButtons(); },
+    dispose: () => { runId++; worker?.terminate(); quickWorker?.terminate(); },
   };
 }

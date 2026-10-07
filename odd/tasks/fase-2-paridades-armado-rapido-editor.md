@@ -135,7 +135,7 @@ preguntan al llegar a cada punto, una por vez.
     mostrada como "la más corta encontrada" con la cota inferior demostrada
     ("entre X e Y giros"). 4x4 largo: sin mínimo práctico; se dice con
     honestidad y se ofrece el armado automático.
-  - [ ] **T2.3** Interfaz: botón "Armado rápido" junto al automático; traza la
+  - [x] **T2.3** Interfaz: botón "Armado rápido" junto al automático; traza la
     lista de giros con su cuenta y la etiqueta "mínimo demostrado" o la cota, y
     la ejecuta animada. Revisión en navegador.
 - [ ] **T3** Editor para pintar el cubo. Antes: decidir con el usuario la forma.
@@ -193,3 +193,12 @@ docker build -t rubik-spa .
   comprobada contra la distancia real (hallazgo de revisión). `verify-quick`:
   2159/0; Docker sin caché OK. Nota para T2.3: con el valor por defecto el
   botón tarda unos 2 s; conviene pasar `target` o un `timeMs` menor.
+- **T2.3** (2026-10-07). Botón "Armado rápido" en el widget compartido
+  (`autosolve.js`): busca en `quick-worker.js` (2 s, `target` 20 en 3x3; se
+  calienta al pasar el cursor), muestra giros como fichas, estado ("Mínimo
+  demostrado" o "entre X y N giros"), "Sostener: ..." aparte, anima y se
+  detiene o cancela. 4x4 sin demostrar ofrece el armado automático. Navegador
+  (Chrome real): mezcla de 3 giros da 3 y "Mínimo demostrado"; 4x4 de 12 giros
+  da "al menos 7 giros" con el botón de respaldo; cancelar descarta el worker;
+  sin errores de consola. `verify-algorithms` 180/0, `verify-solver 60 8`
+  278/0, `verify-last-layer all --sample 300` 5064/0, `verify-quick` 2159/0.
