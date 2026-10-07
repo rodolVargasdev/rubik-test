@@ -13,6 +13,21 @@ Guía visual en 3D para armar el cubo de Rubik:
 Cada caso se reproduce giro a giro, con una flecha que marca el giro, las piezas
 que no importan en gris y la pieza protagonista resaltada.
 
+Publicado en https://rodolvargasdev.github.io/rubik-test/
+
+## Publicar en GitHub Pages
+
+Pages sirve la rama `gh-pages`, que contiene solo `src/` en la raíz. Antes de
+publicar, corra las pruebas (Pages no pasa por el build de la imagen):
+
+```bash
+node tests/verify-algorithms.mjs && node tests/verify-solver.mjs 60 8
+```
+
+```bash
+git push origin "$(git subtree split --prefix src)":gh-pages
+```
+
 ## Arranque (vía principal: contenedor)
 
 ```bash
