@@ -109,6 +109,16 @@ preguntan al llegar a cada punto, una por vez.
   paso. Mismo commit que T1.1.
 - [x] **T1.3** Guía 4x4: un caso animado por familia de paridad PLL, con su
   entrada en `EXPECT`. Ruta: delegada (contenido + prueba).
+- [ ] **T1.4** Hallazgos de la revisión `review-63345b73fbfeb527` (aprobada,
+  no bloqueantes): (a) el arnés paralelo no comprueba que cada hilo entregó sus
+  contadores ni su código de salida, y podría informar 0 fallas con parte del
+  espacio sin juzgar; (b) en Docker cada hilo repite el BFS completo, así que la
+  memoria crece con los núcleos del host: limitar hilos en modo muestra; (c) el
+  rótulo del caso en la prueba replica la regla del solucionador y no es un
+  oráculo independiente: anclar "aristas vecinas" y "caso mixto" con estados
+  conocidos y clasificar por un método distinto; (d) sugerencias: guardas de
+  `seg` en `named4`, rechazar `--sample` inválido, comprobar que los objetivos
+  de `esquinas-diagonal` y `aristas-vecinas` quedan sin armar.
 - [ ] **T2** Armado rápido. Antes: explicar límites de optimalidad y decidir la
   métrica con el usuario.
 - [ ] **T3** Editor para pintar el cubo. Antes: decidir con el usuario la forma.
