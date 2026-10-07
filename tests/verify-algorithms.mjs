@@ -33,6 +33,7 @@ const matchedTopEdgeNames = (s) => s.cubies.filter((c) => c.type === 'edge' && h
 const matchedTopEdges = (s) => s.cubies.filter((c) => c.type === 'edge' && has(c, 'U') && pieceSolved(s, c)).length;
 const placedTopCorners = (s) => s.cubies.filter((c) => c.type === 'corner' && has(c, 'U')
   && c.pos.every((v, i) => v === c.home[i])).length;
+const yellowUp = (s) => s.cubies.filter((c) => c.pos[1] === s.n - 1 && c.type !== 'center').every((c) => nf(s, c, 'U') === 'U');
 const after = (start, alg) => start.clone().apply(alg);
 
 // Expected start situation per "guide/step/case".
@@ -72,6 +73,10 @@ const EXPECT = {
   '4x4/como-3x3/sune': (s) => centersDone(s) && unpairedSlots(s).length === 0 && matchedTopEdges(s) === 4,
   '4x4/paridad-oll/oll': (s) => centersDone(s) && onlyBrokenAt(s, ['1,3,3', '-1,3,3']),
   '4x4/paridad-pll/pll': (s) => centersDone(s) && onlyBrokenAt(s, ['1,3,3', '-1,3,3', '1,3,-3', '-1,3,-3']),
+  // Two edges (both wings of each slot) or two corners swapped, all yellow up.
+  '4x4/paridad-pll/aristas-vecinas': (s) => centersDone(s) && yellowUp(s) && onlyBrokenAt(s, ['1,3,3', '-1,3,3', '3,3,1', '3,3,-1']),
+  '4x4/paridad-pll/esquinas-vecinas': (s) => centersDone(s) && yellowUp(s) && onlyBrokenAt(s, ['3,3,3', '3,3,-3']),
+  '4x4/paridad-pll/esquinas-diagonal': (s) => centersDone(s) && yellowUp(s) && onlyBrokenAt(s, ['3,3,3', '-3,3,-3']),
 };
 
 function cornerDFR(s) { return s.cubies.find((c) => c.faces.slice().sort().join('') === 'DFR'); }
@@ -142,6 +147,16 @@ for (const guide of [GUIDE_3, GUIDE_4]) {
   const flipped3 = new CubeState(3).apply(ALGS.OE);
   check('Contraprueba: la expectativa de paridad rechaza un caso de 3x3',
     !onlyBrokenAt(new CubeState(4).apply("R U R' U'"), ['1,3,3', '-1,3,3']) && !flipped3.isSolved());
+  const par = GUIDE_4.steps.find((s) => s.id === 'paridad-pll').cases;
+  const st = (id) => buildCase(4, par.find((q) => q.id === id)).start;
+  check('Contraprueba: esquinas en diagonal no pasa por esquinas vecinas, ni al revés',
+    !EXPECT['4x4/paridad-pll/esquinas-diagonal'](st('esquinas-vecinas')) && !EXPECT['4x4/paridad-pll/esquinas-vecinas'](st('esquinas-diagonal')));
+  check('Contraprueba: aristas vecinas no pasa por aristas opuestas, ni al revés',
+    !EXPECT['4x4/paridad-pll/pll'](st('aristas-vecinas')) && !EXPECT['4x4/paridad-pll/aristas-vecinas'](st('pll')));
+  check('Contraprueba: dos esquinas intercambiadas no pasan por dos aristas',
+    !EXPECT['4x4/paridad-pll/aristas-vecinas'](st('esquinas-vecinas')) && !EXPECT['4x4/paridad-pll/pll'](st('esquinas-diagonal')));
+  check('Contraprueba: la paridad deja un caso del 3x3 (no armado) en los casos con esquinas',
+    !buildCase(4, par.find((q) => q.id === 'esquinas-vecinas')).target.isSolved());
   check('Contraprueba: un estado mezclado no pasa como "no armado"', !new CubeState(3).apply('R').isSolved());
 }
 

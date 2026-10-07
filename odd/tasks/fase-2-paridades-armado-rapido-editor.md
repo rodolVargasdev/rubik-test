@@ -107,7 +107,7 @@ preguntan al llegar a cada punto, una por vez.
 - [x] **T1.2** Narración de la paridad PLL según el caso real (aristas opuestas,
   aristas vecinas, esquinas vecinas, esquinas en diagonal, mixto) y rótulo del
   paso. Mismo commit que T1.1.
-- [ ] **T1.3** Guía 4x4: un caso animado por familia de paridad PLL, con su
+- [x] **T1.3** Guía 4x4: un caso animado por familia de paridad PLL, con su
   entrada en `EXPECT`. Ruta: delegada (contenido + prueba).
 - [ ] **T2** Armado rápido. Antes: explicar límites de optimalidad y decidir la
   métrica con el usuario.
@@ -138,3 +138,10 @@ node tests/verify-last-layer.mjs all --sample 300
 node tests/verify-last-layer.mjs all
 docker build -t rubik-spa .
 ```
+- **T1.3** (2026-10-07). Guía 4x4: casos `aristas-vecinas`, `esquinas-vecinas`,
+  `esquinas-diagonal` (con `setup`; animan los 6 giros de la paridad y terminan
+  en un caso normal del 3x3, como lo hace el solucionador) y texto del caso
+  mixto. `verify-algorithms.mjs`: 178/0 (antes 159), con contrapruebas que
+  distinguen vecinas de diagonal y aristas de esquinas. Revisado en el
+  navegador: el caso diagonal se ve con todo el amarillo arriba, sin errores
+  de consola.

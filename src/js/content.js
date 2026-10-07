@@ -24,6 +24,9 @@ const changed = (filter = () => true) => (start, target) => start.cubies
   .filter((c, i) => filter(c) && (c.pos.some((v, k) => v !== target.cubies[i].pos[k])
     || c.basis.some((b, k) => b.some((x, j) => x !== target.cubies[i].basis[k][j]))))
   .map((c) => c.id);
+// Pieces of one kind that are not in their home slot (a swapped pair).
+const misplaced = (filter) => (start) => start.cubies
+  .filter((c) => filter(c) && c.pos.some((v, k) => v !== c.home[k])).map((c) => c.id);
 const unpairedWings = (start) => {
   const slots = {};
   for (const c of start.cubies.filter((q) => q.type === 'edge')) {
@@ -53,11 +56,24 @@ const DAISY = 'F2 R2 B2 L2';
 // built as a conjugate of the single-edge parity flip. Setup only: the
 // learner never performs it.
 const PAIR_SETUP = `L2 u2 F' r2 B2 U2 l U2 r' U2 r U2 F2 r F2 l' B2 r2 F u2 L2`;
+// Last-layer 3x3 permutations used only to build the parity start states
+// below (T, Y and Ua perms); the learner never performs them.
+const T_PERM = "R U R' U' R' F R2 U' R' U' R U R' F'";
+const Y_PERM = "F R U' R' U' R U R' F' R U R' U' R' F R F'";
+const UA_PERM = "R U' R U R U R U' R' U' R2";
+const UB_PERM = "R' U R' U' R' U' R' U R U R2";
+const PLL_PARITY = "r2 U2 r2 Uw2 r2 u2";
+// Parity start states: two edges (or two corners) swapped, everything else
+// solved and all yellow up. Built with an even permutation plus the parity
+// algorithm itself, so each one is a real state of a 4x4.
+const PARITY_EDGES_ADJACENT = `U ${UA_PERM} U' ${PLL_PARITY}`;
+const PARITY_CORNERS_ADJACENT = `U ${PLL_PARITY} U' ${T_PERM}`;
+const PARITY_CORNERS_DIAGONAL = `U ${Y_PERM} ${UB_PERM} ${PLL_PARITY} U`;
 
 export const ALGS = {
   SEXY, RIGHT, LEFT, OE, SUNE, CP, TWIST,
   OLL_PARITY: "r2 B2 U2 l U2 r' U2 r U2 F2 r F2 l' B2 r2",
-  PLL_PARITY: "r2 U2 r2 Uw2 r2 u2",
+  PLL_PARITY,
   PAIR: "Uw' R U R' F R' F' R Uw",
   LAST_TWO: "Dw R F' U R' F Dw'",
 };
@@ -314,17 +330,26 @@ export const GUIDE_4 = {
     },
     {
       id: 'paridad-pll',
-      title: 'Paridad: dos aristas intercambiadas',
-      goal: 'Intercambiar dos aristas dobles opuestas al final.',
+      title: 'Paridad: dos piezas intercambiadas',
+      goal: 'Cambiar dos aristas dobles para que lo que quede sea un caso normal del 3x3.',
       how: [
-        'Lo verás al final: dos aristas opuestas cambiadas entre sí y todo lo demás armado.',
-        'Pon las dos aristas adelante y atrás, en la capa de arriba.',
-        "Haz r2 U2 r2 Uw2 r2 u2.",
+        'Lo verás al final: dos aristas o dos esquinas cambiadas entre sí (o una mezcla de ambas), algo imposible en un 3x3.',
+        'La mezcla es lo más común, unas 5 de cada 6 veces. El algoritmo es el mismo en todos los casos.',
+        "Haz r2 U2 r2 Uw2 r2 u2 sin importar dónde estén las piezas cambiadas.",
+        'Con aristas opuestas el cubo queda armado. En los demás casos queda un caso normal del 3x3: termínalo con sus pasos.',
       ],
       tip: 'Uw2 gira dos capas de arriba; u2 gira solo la segunda capa.',
       cases: [
         { id: 'pll', name: 'Dos aristas opuestas', base: '', alg: ALGS.PLL_PARITY, mask: 'all', focus: changed((c) => c.type === 'edge'),
           groups: [[6, 'Algoritmo de paridad de permutación']] },
+        { id: 'aristas-vecinas', name: 'Dos aristas vecinas', setup: PARITY_EDGES_ADJACENT, alg: ALGS.PLL_PARITY, mask: 'all', focus: changed((c) => c.type === 'edge'),
+          groups: [[6, 'Paridad: cambia dos aristas y queda un caso del 3x3']] },
+        { id: 'esquinas-vecinas', name: 'Dos esquinas vecinas', setup: PARITY_CORNERS_ADJACENT, alg: ALGS.PLL_PARITY, mask: 'all',
+          focus: (s, t) => [...misplaced((c) => c.type === 'corner')(s), ...changed((c) => c.type === 'edge')(s, t)],
+          groups: [[6, 'Paridad: cambia dos aristas y queda un caso del 3x3']] },
+        { id: 'esquinas-diagonal', name: 'Dos esquinas en diagonal', setup: PARITY_CORNERS_DIAGONAL, alg: ALGS.PLL_PARITY, mask: 'all',
+          focus: (s, t) => [...misplaced((c) => c.type === 'corner')(s), ...changed((c) => c.type === 'edge')(s, t)],
+          groups: [[6, 'Paridad: cambia dos aristas y queda un caso del 3x3']] },
       ],
     },
   ],
