@@ -1,7 +1,7 @@
 import { Stage, CubeView, AlgPlayer, changedPieces } from './viewer.js';
 import { GUIDE_3, GUIDE_4, buildCase, groupRanges, NOTATION, METHOD_LOAD, MASKS, ALGS } from './content.js';
 import { CubeState, tokenize, invertAlg, FACE_COLORS } from './cube-core.js';
-import { solve, serialize, STEPS } from './solver.js';
+import { mountAutoSolve } from './autosolve.js';
 
 const main = document.getElementById('main');
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -145,18 +145,7 @@ function viewNotation() {
         ${holdLegend()}
         <button class="btn btn-small stage-reset" id="n-reset" title="Vuelve el cubo al estado armado al instante">Armar de nuevo</button>
       </div>
-      <div class="solver-bar">
-        <button class="btn btn-primary" id="n-auto" title="Arma el cubo desde donde está, paso a paso y con el método de la guía">Armado automático</button>
-        <div class="speed" role="group" aria-label="Velocidad del armado">
-          <button data-s="0.6">Lento</button><button data-s="1.3">Normal</button><button data-s="3.2">Rápido</button>
-        </div>
-      </div>
-      <section class="solver" id="solver" hidden aria-live="polite">
-        <div class="sv-head"><strong id="sv-step"></strong><span id="sv-count"></span></div>
-        <p class="sv-label" id="sv-label"></p>
-        <div class="alg" id="sv-alg"></div>
-        <ol class="sv-steps" id="sv-steps"></ol>
-      </section>
+      <div class="auto-host" id="n-auto"></div>
     </div>
     <div class="panel">
       <div class="seg" role="group" aria-label="Tamaño del cubo">
@@ -202,11 +191,11 @@ function viewNotation() {
   };
   $('#pad').addEventListener('click', (e) => {
     const t = e.target.closest('[data-t]')?.dataset.t;
-    if (t && !solving) doTurn(t);
+    if (t && !solving()) doTurn(t);
   });
   $('.seg').addEventListener('click', (e) => {
     const nn = Number(e.target.closest('[data-n]')?.dataset.n);
-    if (!nn || nn === n || solving) return;
+    if (!nn || nn === n || solving()) return;
     n = nn;
     store.set('rubik-notation-n', n);
     view.dispose();
@@ -215,145 +204,26 @@ function viewNotation() {
     view.speed = 0.85;
     buildPad();
   });
-  $('#n-reset').addEventListener('click', () => { stopSolve(); view.setState(new CubeState(n)); cap.textContent = 'Armado'; });
+  let auto = null;
+  $('#n-reset').addEventListener('click', () => { auto?.stop(); view.setState(new CubeState(n)); cap.textContent = 'Armado'; });
 
-  // ----- automatic solve -----
-  let solving = false;
-  let runId = 0;
-  let worker = null;
-  const autoBtn = $('#n-auto');
-  const speedKey = 'rubik-auto-speed';
-  let autoSpeed = store.get(speedKey, 1.3);
-  const speedBtns = $$('.solver-bar .speed button');
-  const markSpeed = () => speedBtns.forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.s) === autoSpeed)));
-  markSpeed();
-  $('.solver-bar .speed').addEventListener('click', (e) => {
-    const sp = Number(e.target.closest('[data-s]')?.dataset.s);
-    if (!sp) return;
-    autoSpeed = sp;
-    store.set(speedKey, sp);
-    markSpeed();
-    if (solving) view.speed = sp;
+  auto = mountAutoSolve($('#n-auto'), {
+    getView: () => view,
+    getN: () => n,
+    stageEl: $('#n-stage'),
+    setCaption: (text, sub) => { cap.innerHTML = sub ? `${text}<br><span class="cap-sub">${sub}</span>` : text; },
+    onStart: () => $$('#pad button, .seg button').forEach((b) => { b.disabled = true; }),
+    onEnd: () => $$('#pad button, .seg button').forEach((b) => { b.disabled = false; }),
   });
-
-  function setSolving(on) {
-    solving = on;
-    autoBtn.textContent = on ? 'Detener' : 'Armado automático';
-    autoBtn.classList.toggle('btn-stop', on);
-    $$('#pad button, .seg button').forEach((b) => { b.disabled = on; });
-    if (!on) view.speed = 0.85;
-  }
-
-  function stopSolve() {
-    if (!solving) return;
-    runId++;
-    setSolving(false);
-    view.setState(view.state);
-    $$('#sv-steps .sv-step').forEach((x) => x.classList.remove('current'));
-    cap.textContent = 'Armado detenido. Puedes seguir girando o volver a pedirlo.';
-  }
-
-  async function solveHere(state) {
-    try { return { ok: true, ...solve(state) }; } catch (err) { return { ok: false, error: err.message }; }
-  }
-  function computePlan(state) {
-    return new Promise((resolve) => {
-      try {
-        worker ||= new Worker(new URL('./solver-worker.js', import.meta.url), { type: 'module' });
-        worker.onmessage = (e) => resolve(e.data);
-        worker.onerror = () => { worker = null; solveHere(state).then(resolve); };
-        worker.postMessage(serialize(state));
-      } catch { solveHere(state).then(resolve); }
-    });
-  }
-
-  const stepTitle = (id) => STEPS[n].find(([k]) => k === id)?.[1] || id;
-  const movesOf = (segs) => segs.reduce((t, x) => t + (x.groups ? x.groups.reduce((u, g) => u + g.moves.length, 0) : 0), 0);
-
-  async function autoSolve() {
-    if (solving) { stopSolve(); return; }
-    const my = ++runId;
-    setSolving(true);
-    await view.queue;
-    if (my !== runId) return;
-    cap.textContent = n === 4 ? 'Calculando el plan; el 4x4 puede tardar unos segundos' : 'Calculando el plan';
-    const res = await computePlan(view.state.clone());
-    if (my !== runId) return;
-    if (!res.ok) { setSolving(false); cap.textContent = `No se encontró un plan: ${res.error}`; return; }
-
-    $('#solver').hidden = false;
-    $('#sv-steps').innerHTML = STEPS[n].map(([id, title], i) => {
-      const segs = res.segments.filter((x) => x.step === id);
-      const skipped = segs.length > 0 && segs.every((x) => x.skipped);
-      return `<li class="sv-step${skipped ? ' skipped' : ''}" data-step="${id}">
-        <span class="sv-dot" aria-hidden="true">${n === 3 ? i : i + 1}</span>
-        <div><strong>${title}</strong><small>${skipped ? `Se omite. ${segs[0].reason}` : `${movesOf(segs)} giros`}</small></div>
-      </li>`;
-    }).join('');
-    $('#sv-count').textContent = `${res.moves} giros en total`;
-    if (res.moves === 0) {
-      $('#sv-step').textContent = 'Ya estaba armado';
-      $('#sv-label').textContent = 'No hace falta ningún paso: cada uno se omite con su motivo.';
-      $('#sv-alg').innerHTML = '';
-      cap.textContent = 'El cubo ya está armado.';
-      setSolving(false);
-      return;
-    }
-
-    view.speed = autoSpeed;
-    let played = 0;
-    for (const seg of res.segments) {
-      if (my !== runId) return;
-      const li = $(`#sv-steps [data-step="${seg.step}"]`);
-      $$('#sv-steps .sv-step').forEach((x) => x.classList.toggle('current', x === li));
-      $('#sv-step').textContent = stepTitle(seg.step);
-      if (seg.skipped) {
-        $('#sv-label').textContent = `Se omite: ${seg.reason}`;
-        $('#sv-alg').innerHTML = '';
-        cap.innerHTML = `Se omite: ${stepTitle(seg.step)}<br><span class="cap-sub">${seg.reason}</span>`;
-        await wait(1600 / view.speed);
-        continue;
-      }
-      $('#sv-label').textContent = seg.label;
-      let k = 0;
-      $('#sv-alg').innerHTML = seg.groups.map((g) => `<div class="group"><div class="chips">${g.moves.map((t) => `<span class="chip" data-k="${k++}">${t}</span>`).join('')}</div><span class="glabel">${g.label || ''}</span></div>`).join('');
-      cap.innerHTML = `${stepTitle(seg.step)}<br><span class="cap-sub">${seg.label}</span>`;
-      const chips = $$('#sv-alg .chip');
-      const groups = $$('#sv-alg .group');
-      let idx = 0;
-      for (let gi = 0; gi < seg.groups.length; gi++) {
-        groups.forEach((g, j) => g.classList.toggle('active', j === gi));
-        for (const t of seg.groups[gi].moves) {
-          if (my !== runId) return;
-          chips.forEach((c, j) => { c.classList.toggle('done', j < idx); c.classList.toggle('now', j === idx); });
-          const ok = await view.turn(t);
-          if (!ok || my !== runId) return;
-          idx++;
-          played++;
-          $('#sv-count').textContent = `Giro ${played} de ${res.moves}`;
-        }
-      }
-      chips.forEach((c) => { c.classList.remove('now'); c.classList.add('done'); });
-      li?.classList.add('ok');
-      await wait(450 / view.speed);
-    }
-    if (my !== runId) return;
-    $$('#sv-steps .sv-step').forEach((x) => x.classList.remove('current'));
-    $('#sv-step').textContent = 'Armado';
-    $('#sv-label').textContent = `Listo en ${res.moves} giros, con los mismos pasos de la guía.`;
-    $('#sv-alg').innerHTML = '';
-    cap.textContent = `Armado en ${res.moves} giros.`;
-    setSolving(false);
-  }
-  autoBtn.addEventListener('click', autoSolve);
+  const solving = () => auto.isSolving();
 
   const onKey = (e) => {
-    if (solving || e.target.closest('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (solving() || e.target.closest('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toUpperCase();
     if ('UDRLFB'.includes(k) && k.length === 1) { doTurn(k + (e.shiftKey ? "'" : '')); e.preventDefault(); }
   };
   window.addEventListener('keydown', onKey);
-  return () => { runId++; worker?.terminate(); window.removeEventListener('keydown', onKey); view.dispose(); stage.dispose(); };
+  return () => { auto.dispose(); window.removeEventListener('keydown', onKey); view.dispose(); stage.dispose(); };
 }
 
 // ---------- guides ----------
@@ -390,6 +260,7 @@ function viewGuide(guide) {
           <span class="count" id="count"></span>
         </div>
       </div>
+      <div class="auto-host" id="g-auto"></div>
     </div>
     <ol class="steps" id="steps">
       ${guide.steps.map((s, i) => `
@@ -417,8 +288,11 @@ function viewGuide(guide) {
   const speedKey = 'rubik-speed';
   view.speed = store.get(speedKey, 1);
   let stepIdx = 0;
+  let caseIdx = 0;
   let caseDef = null;
   let ranges = [];
+  let auto = null;
+  let autoDirty = false;
 
   const player = new AlgPlayer(view, { onChange: render });
 
@@ -440,6 +314,10 @@ function viewGuide(guide) {
   }
 
   function loadCase(ci) {
+    auto?.stop('');
+    auto?.hidePanel();
+    autoDirty = false;
+    caseIdx = ci;
     const step = guide.steps[stepIdx];
     caseDef = step.cases[ci];
     const built = buildCase(guide.n, caseDef);
@@ -497,12 +375,12 @@ function viewGuide(guide) {
   $('#b-play').addEventListener('click', () => (player.playing ? player.pause() : player.play()));
   $('#b-next').addEventListener('click', () => { player.pause(); player.step(1); });
   $('#b-prev').addEventListener('click', () => { player.pause(); player.step(-1); });
-  $('#b-restart').addEventListener('click', () => player.restart());
+  $('#b-restart').addEventListener('click', () => (autoDirty ? loadCase(caseIdx) : player.restart()));
   $('#g-view').addEventListener('click', () => stage.controls?.reset());
-  const speedBtns = $$('.speed button');
+  const speedBtns = $$('.controls .speed button');
   const markSpeed = () => speedBtns.forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.s) === view.speed)));
   markSpeed();
-  $('.speed').addEventListener('click', (e) => {
+  $('.controls .speed').addEventListener('click', (e) => {
     const s = Number(e.target.closest('[data-s]')?.dataset.s);
     if (!s) return;
     view.speed = s;
@@ -510,6 +388,7 @@ function viewGuide(guide) {
     markSpeed();
   });
   const onKey = (e) => {
+    if (auto?.isSolving()) return;
     if (e.target.closest('input, textarea, select, [role="tab"]') && e.key !== ' ') return;
     if (e.key === ' ' && !e.target.closest('button, input')) { e.preventDefault(); player.playing ? player.pause() : player.play(); }
     if (e.key === 'ArrowRight') { player.pause(); player.step(1); }
@@ -517,8 +396,35 @@ function viewGuide(guide) {
   };
   window.addEventListener('keydown', onKey);
 
+  const lockPlayer = (on) => $$('.player button').forEach((b) => { b.disabled = on; });
+  auto = mountAutoSolve($('#g-auto'), {
+    getView: () => view,
+    getN: () => guide.n,
+    idleSpeed: store.get(speedKey, 1),
+    stageEl: $('#g-stage'),
+    setCaption: (text, sub) => {
+      $('#cap-step').textContent = sub ? `Armado automático: ${text}` : 'Armado automático';
+      $('#cap-label').textContent = sub || text;
+    },
+    onStart: () => {
+      player.pause();
+      autoDirty = true;
+      lockPlayer(true);
+      $('.guide-grid .stage-col').classList.add('auto-on');
+      // Show every color: the solver works on the whole cube, not one case.
+      view.setMask(MASKS.all, { instant: true });
+      view.setFocus([]);
+      $('#count').textContent = '';
+    },
+    onEnd: () => {
+      lockPlayer(false);
+      $('.guide-grid .stage-col').classList.remove('auto-on');
+      $('#count').textContent = 'Reiniciar vuelve al caso';
+    },
+  });
+
   openStep(0);
-  return () => { window.removeEventListener('keydown', onKey); player.pause(); view.dispose(); stage.dispose(); };
+  return () => { auto.dispose(); window.removeEventListener('keydown', onKey); player.pause(); view.dispose(); stage.dispose(); };
 }
 
 // ---------- why ----------
