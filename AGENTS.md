@@ -37,6 +37,15 @@ animaciones three.js. Sin build: módulos ES servidos tal cual desde `src/`.
   gemela por la posición y la paridad no es error.
 - **Armado rápido en la interfaz:** `autosolve.js` lo ejecuta en
   `quick-worker.js` (2 s, `target` 20 en 3x3).
+- **Armado rápido del 4x4 por reducción con búsqueda** (`quick/reduction4.js`):
+  búsqueda exacta hasta el 30% del tiempo; si no demuestra el mínimo, centros
+  por tres tablas BFS exactas (marco fijo por la esquina DBL, cada giro más la
+  rotación que la devuelve a su sitio), emparejado por haz sobre una biblioteca
+  de macros que conservan los centros (giro de capa, giros exteriores, vuelta),
+  paridad con `ALGS.OLL_PARITY`/`PLL_PARITY` según la lectura 3x3 del editor, y
+  `two-phase.js` para el 3x3. Se exploran varias variantes dentro del
+  presupuesto (4000 ms) y se entrega la más corta; todo se verifica por replay
+  y, si falla, `moves: null`.
 - **Textos de la interfaz en español neutro**, sin voseo y sin tipografía de IA.
 
 ## Agregar un rompecabezas

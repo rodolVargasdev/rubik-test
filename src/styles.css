@@ -204,6 +204,8 @@ p { margin: 0; }
   background: var(--paper-2); font-weight: 700; font-size: 0.92rem;
 }
 .sv-extra { display: flex; flex-wrap: wrap; gap: 8px; }
+/* A long quick solution scrolls inside its own box; offsetTop is measured from it. */
+.sv-alg.long { position: relative; max-height: 11.5rem; overflow-y: auto; overscroll-behavior: contain; }
 .chip-hold { border-style: dashed; border-color: var(--ink-2); color: var(--ink); background: var(--card); font-size: 0.98rem; }
 .chip-hold.now { border-style: solid; }
 .cap-sub { font: 500 0.92rem/1.35 var(--body); color: var(--ink-2); }

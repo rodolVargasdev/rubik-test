@@ -25,6 +25,7 @@ import { CubeState, FACE_NORMALS } from '../cube-core.js';
 import { deserialize } from '../solver.js';
 import { generatorList, commute } from './metric.js';
 import { twoPhaseSolve } from './two-phase.js';
+import { reduceSolve } from './reduction4.js';
 
 export { deserialize };
 
@@ -342,14 +343,30 @@ export function exactSearch(input, { timeMs = 2000, d1, maxLayer = 63 } = {}) {
 // Combined entry point. 3x3: up to 40 percent of the budget goes to the exact
 // search; when it cannot prove the minimum, the two-phase solver spends the
 // rest and the result is a short (not proven minimal) solution whose
-// lowerBound still comes from the exact search. 4x4: exact search only.
-//   source: 'exact' (proven minimum) | 'two-phase' | null (no solution)
-export function quickSolve(input, { timeMs = 2000, d1, twoPhase = true, target = 0 } = {}) {
+// lowerBound still comes from the exact search. 4x4: up to 30 percent to the
+// exact search (it keeps proving short scrambles minimal), the rest to the
+// reduction solver (centers, edge pairing, parity, 3x3); if that fails the
+// result carries only the bound, never a wrong solution.
+//   source: 'exact' (proven minimum) | 'two-phase' | 'reduction' | null (no solution)
+export function quickSolve(input, { timeMs = 2000, d1, twoPhase = true, reduction = true, target = 0 } = {}) {
   const state = input instanceof CubeState ? input : deserialize(input);
   const useTwo = twoPhase && state.n === 3;
+  const useRed = reduction && state.n === 4;
   const t0 = performance.now();
-  const ex = exactSearch(state, { timeMs: useTwo ? timeMs * 0.4 : timeMs, d1 });
+  const ex = exactSearch(state, { timeMs: useTwo ? timeMs * 0.4 : useRed ? timeMs * 0.3 : timeMs, d1 });
   if (ex.optimal) return { ...ex, source: 'exact' };
+  if (useRed) {
+    try {
+      const rd = reduceSolve(state, { timeMs: Math.max(timeMs - (performance.now() - t0), 0), target });
+      return {
+        ...ex, moves: rd.moves, rotation: rd.rotation, length: rd.length, optimal: false, source: 'reduction',
+        lowerBound: Math.min(ex.lowerBound, rd.length),
+        reduction: rd.stat, ms: performance.now() - t0,
+      };
+    } catch (err) {
+      return { ...ex, source: null, error: err.message };
+    }
+  }
   if (!useTwo) return { ...ex, source: null };
   const tp = twoPhaseSolve(state, { timeMs: Math.max(timeMs - (performance.now() - t0), 0), target });
   return {

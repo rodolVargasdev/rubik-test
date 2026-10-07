@@ -3,18 +3,25 @@
 //
 //   node tests/verify-quick.mjs            (a few seconds, what the Docker build runs)
 //   node tests/verify-quick.mjs --long 50  (also 50 long scrambles at the default budget)
+//   node tests/verify-quick.mjs --long4 30 (also 30 long 4x4 scrambles at 4000 ms, with the length distribution)
 //
 // Minimality is checked against an independent oracle: a plain exhaustive
 // search over every button (no table, no canonical states, no pruning, no
 // dropped duplicate moves) that must find nothing shorter than the claim.
-import { CubeState, invertAlg, invertToken } from '../src/js/cube-core.js';
+import { CubeState, invertAlg, invertToken, normalFace, faceletDiff } from '../src/js/cube-core.js';
 import { quickSolve, exactSearch, prepare } from '../src/js/quick/search.js';
 import * as TP from '../src/js/quick/two-phase.js';
 import { optimizeSolution, replaySolves } from '../src/js/quick/optimize.js';
+import * as RD from '../src/js/quick/reduction4.js';
+import { ALGS } from '../src/js/content.js';
 
 const longIdx = process.argv.indexOf('--long');
 const LONG = longIdx > 0 ? Number(process.argv[longIdx + 1]) : 0;
 if (longIdx > 0 && !(LONG > 0)) { console.log('Uso: --long N con N entero positivo'); process.exit(2); }
+
+const long4Idx = process.argv.indexOf('--long4');
+const LONG4 = long4Idx > 0 ? Number(process.argv[long4Idx + 1]) : 0;
+if (long4Idx > 0 && !(LONG4 > 0)) { console.log('Uso: --long4 N con N entero positivo'); process.exit(2); }
 
 const t0 = performance.now();
 let ok = 0;
@@ -45,6 +52,8 @@ function scramble(n, k, withRotations) {
 }
 
 const make = (n, alg) => new CubeState(n).apply(alg);
+const normalFaceOf = (s, c, f) => normalFace(s.stickerNormal(c, f));
+const faceletDiffOf = (a, b) => faceletDiff(a, b);
 
 // Replays moves + rotation: solved, yellow up, green front.
 function replayOk(state, res) {
@@ -209,8 +218,13 @@ for (const [n, alg] of [[3, "R U F' D2 M E' S"], [4, "Rw U' r2 F d' M"]]) {
   // Counter-proof: a bigger budget on an easy state does prove the minimum.
   const easy = quickSolve(make(3, scramble(3, 6, false)), { timeMs: 5000 });
   check(easy.optimal === true, 'contraprueba: con tiempo de sobra debía demostrar el mínimo');
-  const tight = quickSolve(make(4, scramble(4, 25, true)), { timeMs: 1 });
-  check(tight.optimal === false && tight.moves === null && tight.lowerBound >= 1, 'presupuesto mínimo: debía devolver solo la cota');
+  // With a 1 ms budget the reduction still builds its first solution (and only that one).
+  const tightState = make(4, scramble(4, 25, true));
+  const tight = quickSolve(tightState, { timeMs: 1 });
+  check(tight.optimal === false && tight.lowerBound >= 1 && tight.moves && replayOk(tightState, tight), 'presupuesto mínimo: debía devolver una solución válida del primer intento');
+  // The 4x4 without the reduction keeps the old contract: only the bound, never a made-up solution.
+  const boundOnly = quickSolve(make(4, scramble(4, 25, true)), { timeMs: 100, reduction: false });
+  check(boundOnly.optimal === false && boundOnly.moves === null && boundOnly.source === null && boundOnly.lowerBound >= 1, 'sin reducción: debía devolver solo la cota');
 }
 
 // ---------- exact search: timeout lower bound ----------
@@ -384,9 +398,6 @@ const HOME = TP.coordsFromState(new CubeState(3));
     }
   };
   longRun(5, 500, true);
-  // A 4x4 that is not proven stays without a solution (the UI offers the teaching solver).
-  const big = quickSolve(make(4, scramble(4, 25, true)), { timeMs: 200 });
-  check(big.source === null && big.moves === null && big.lowerBound >= 1, '4x4 largo: debía devolver solo la cota y source null');
   // Easy states keep coming from the exact search.
   const easy = quickSolve(make(3, scramble(3, 4, false)), { timeMs: 2000 });
   check(easy.source === 'exact' && easy.optimal, '3x3 corto: debía venir de la búsqueda exacta');
@@ -395,6 +406,219 @@ const HOME = TP.coordsFromState(new CubeState(3));
   const midRes = quickSolve(mid, { timeMs: 500 });
   check(midRes.moves && replayOk(mid, midRes), '3x3 con centros movidos: la solución no arma el cubo');
   if (LONG) longRun(LONG, 2000, true);
+}
+
+// ---------- 4x4 reduction ----------
+// Centers (exact tables), edge pairing (macro library), parity and the 3x3
+// finish. Every solution is replayed on the original cube.
+{
+  const m = RD.model();
+  const prep = RD.prepareReduction();
+  const T = RD.centerTables();
+  console.log(`reducción 4x4: tablas listas, construidas en (modelo ${m.ms.toFixed(0)}, centros ${T.ms.toFixed(0)}, biblioteca ${RD.pairLibrary().ms.toFixed(0)}), ${(prep.bytes / 1e6).toFixed(1)} MB, ${m.gens.length} giros de marco, ${RD.pairLibrary().macros.length} macros`);
+  check(T.reachC === 343000, `tabla de centros C: ${T.reachC} de 343000 estados alcanzables`);
+  check(T.distA.length === 735471 && T.distB.length === 12870, 'tablas de centros: tamaños inesperados');
+  for (const [name, t] of [['A', T.distA], ['B', T.distB], ['C', T.distC]]) {
+    let top = 0; let goals = 0;
+    for (const v of t) { if (v !== 255 && v > top) top = v; if (v === 0) goals++; }
+    check(top < 14 && goals === 1, `tabla de centros ${name}: un solo estado meta y distancias acotadas (máx ${top})`);
+  }
+
+  // The frame model against CubeState: centers and wings after a move (plus its restoring
+  // rotation) must equal the permutations the search uses. Counter-check: another move's permutation fails.
+  {
+    let bad = 0; let wrongCaught = 0; let checks = 0;
+    for (let i = 0; i < 25; i++) {
+      const { F } = RD.frameOf(m, make(4, scramble(4, 30, true)));
+      const c0 = RD.centersOf(m, RD.stickersOf(m, F));
+      const w0 = RD.wingsOf(m, RD.stickersOf(m, F));
+      for (let g = 0; g < m.gens.length; g += 1 + rnd(3)) {
+        const G = m.gens[g];
+        const F2 = F.clone();
+        F2.applyMove(G.token);
+        if (G.q) F2.apply(m.rots[G.q].tokens.join(' '));
+        const st = RD.stickersOf(m, F2);
+        const cc = RD.centersOf(m, st); const ww = RD.wingsOf(m, st);
+        const mine = Uint8Array.from(G.cp, (v) => c0[v]); const mineW = Uint8Array.from(G.wp, (v) => w0[v]);
+        if (cc.some((v, k) => v !== mine[k]) || ww.some((v, k) => v !== mineW[k])) bad++;
+        const other = m.gens[(g + 1 + rnd(m.gens.length - 1)) % m.gens.length];
+        if (Uint8Array.from(other.cp, (v) => c0[v]).some((v, k) => v !== cc[k])) wrongCaught++;
+        // The restoring rotation leaves DBL home.
+        const dbl = F2.cubies.find((c) => c.type === 'corner' && ['D', 'B', 'L'].every((f) => c.faces.includes(f)));
+        if (dbl.pos.some((v, k) => v !== dbl.home[k])) bad++;
+        checks++;
+      }
+    }
+    check(bad === 0, `modelo de marco: ${bad} diferencias con CubeState`);
+    check(wrongCaught > 0, 'contraprueba: la permutación de otro giro no se detectó');
+    console.log(`modelo de marco: ${checks} giros de marco coinciden con CubeState en centros, aristas y esquina DBL`);
+  }
+
+  // Pruning admissibility: every table value is at most the true distance found by a
+  // plain iterative deepening (no table). Counter-check: an inflated bound is caught.
+  {
+    const atGoal = {
+      A: (c) => { for (let i = 0; i < 8; i++) if (c[i] > 1) return false; return true; },
+      B: (c) => { for (let i = 16; i < 24; i++) if (c[i] < 4) return false; return true; },
+      C: (c) => c.every((v, i) => v === i >> 2),
+    };
+    const plainDist = (c0, gset, goal, maxD) => {
+      for (let d = 0; d <= maxD; d++) {
+        const go = (c, left) => {
+          if (goal(c)) return true;
+          if (!left) return false;
+          for (const g of gset) if (go(Uint8Array.from(m.gens[g].cp, (v) => c[v]), left - 1)) return true;
+          return false;
+        };
+        if (go(c0, d)) return d;
+      }
+      return Infinity;
+    };
+    const hOf = { A: RD.hA, B: RD.hB, C: RD.hC };
+    const sets = { A: T.gA, B: T.gB, C: T.gC };
+    let inflated = 0; let exact = 0; let n = 0;
+    for (const st of ['A', 'B', 'C']) {
+      for (let i = 0; i < 8; i++) {
+        const k = 1 + rnd(3);
+        let c = Uint8Array.from({ length: 24 }, (_, j) => j >> 2);
+        for (let j = 0; j < k; j++) { const cp = m.gens[sets[st][rnd(sets[st].length)]].cp; c = Uint8Array.from(cp, (v) => c[v]); }
+        const d = plainDist(c, sets[st], atGoal[st], k);
+        const h = hOf[st](c);
+        check(h <= d, `poda de centros ${st}: cota ${h} mayor que la distancia real ${d}`);
+        if (h === d) exact++;
+        if (h + 3 > d) inflated++;
+        n++;
+      }
+    }
+    check(exact > 0, 'poda de centros: ninguna cota fue exacta, las tablas parecen vacías');
+    check(inflated > 0, 'contraprueba: una cota inflada en 3 debía superar la distancia real');
+    console.log(`poda de centros: ${n} estados, ninguna cota supera la distancia real (${exact} exactas)`);
+  }
+
+  // Library macros: centers stay solved and the wing effect matches CubeState.
+  {
+    const L = RD.pairLibrary();
+    let bad = 0; let corrupt = 0;
+    const base = RD.wingsOf(m, RD.stickersOf(m, new CubeState(4)));
+    for (let i = 0; i < 300; i++) {
+      const k = rnd(L.macros.length);
+      const st = new CubeState(4);
+      for (const b of L.tokens[k]) st.applyMove(m.buttons[b].token);
+      const a = RD.stickersOf(m, st);
+      if (!RD.centersDone(m, a)) bad++;
+      const want = Uint8Array.from(L.wps[k], (v) => base[v]);
+      if (RD.wingsOf(m, a).some((v, j) => v !== want[j])) bad++;
+      const wrong = Uint8Array.from(L.wps[(k + 1) % L.macros.length], (v) => base[v]);
+      if (RD.wingsOf(m, a).some((v, j) => v !== wrong[j])) corrupt++;
+    }
+    check(bad === 0, `biblioteca de macros: ${bad} macros que rompen centros o no coinciden con CubeState`);
+    check(corrupt > 0, 'contraprueba: el efecto de otra macro no se detectó');
+  }
+
+  // Stage checks on random scrambles: after centers all 24 are solved; after pairing all 12
+  // dedges are paired and the centers are still solved.
+  for (let i = 0; i < 4; i++) {
+    const alg = scramble(4, 40, true);
+    const { F } = RD.frameOf(m, make(4, alg));
+    const start = RD.stickersOf(m, F);
+    check(!RD.centersDone(m, start), `etapas: la mezcla ${i} ya traía los centros armados`);
+    const cen = RD.solveCenters(RD.centersOf(m, start));
+    check(!!cen, `etapas: sin plan de centros "${alg}"`);
+    if (!cen) continue;
+    for (const g of cen.path) { F.applyMove(m.gens[g].token); if (m.gens[g].q) F.apply(m.rots[m.gens[g].q].tokens.join(' ')); }
+    check(RD.centersDone(m, RD.stickersOf(m, F)), `etapas: centros sin armar tras el plan "${alg}"`);
+    const wc = RD.wingsOf(m, RD.stickersOf(m, F));
+    check(RD.pairsOf(wc) < 12, `etapas: la mezcla ${i} ya traía las aristas emparejadas`);
+    const pr = RD.pairEdges(wc, { width: 8 });
+    check(!!pr, `etapas: sin plan de emparejado "${alg}"`);
+    if (!pr) continue;
+    for (const mac of pr.macros) for (const b of mac) F.applyMove(m.buttons[b].token);
+    const a = RD.stickersOf(m, F);
+    check(RD.pairsOf(RD.wingsOf(m, a)) === 12 && RD.centersDone(m, a), `etapas: tras emparejar quedan aristas o centros sin armar "${alg}"`);
+    // Independent pair check on CubeState: both wings of every edge show the same colors on the same faces.
+    const seen = {};
+    for (const c of F.cubies) if (c.type === 'edge') (seen[c.pos.map((v) => (Math.abs(v) === 3 ? v : 0)).join(',')] ||= []).push(c);
+    const unpaired = Object.values(seen).filter(([a1, b1]) => !(a1.faces.slice().sort().join('') === b1.faces.slice().sort().join('') && a1.faces.every((f) => normalFaceOf(F, a1, f) === normalFaceOf(F, b1, f))));
+    check(unpaired.length === 0, `etapas: ${unpaired.length} aristas sin pareja según CubeState`);
+  }
+
+  // Parity detection against what the algorithms are known to do (not against the detector):
+  // a 3x3-only scramble is legal; each parity algorithm adds exactly its own defect.
+  {
+    const flags = (alg) => new Set(RD.readAsThree(make(4, alg)).check.errors.map((e) => e.code));
+    const base3 = "R U2 F' L2 D B' U";
+    const fl = flags(base3);
+    check(fl.size === 0, `paridad: una mezcla de 3x3 legal se marcó como ${[...fl]}`);
+    const oll = flags(`${base3} ${ALGS.OLL_PARITY}`);
+    check(oll.has('flip') && !oll.has('parity'), `paridad OLL: marcas ${[...oll]}`);
+    const pll = flags(`${base3} ${ALGS.PLL_PARITY}`);
+    check(pll.has('parity') && !pll.has('flip'), `paridad PLL: marcas ${[...pll]}`);
+    const both = flags(`${base3} ${ALGS.OLL_PARITY} ${ALGS.PLL_PARITY}`);
+    check(both.has('flip') && both.has('parity'), `paridad doble: marcas ${[...both]}`);
+    // The crafted parity states must solve.
+    for (const [name, alg] of [
+      ['OLL', `${base3} ${ALGS.OLL_PARITY}`], ['PLL', `${base3} ${ALGS.PLL_PARITY}`], ['OLL y PLL', `${base3} ${ALGS.OLL_PARITY} ${ALGS.PLL_PARITY}`],
+    ]) {
+      const state = make(4, alg);
+      const res = RD.reduceSolve(state, { timeMs: 500 });
+      check(replayOk(state, { moves: res.moves, rotation: res.rotation }), `paridad ${name}: la solución no arma el cubo`);
+      check(res.length < 90, `paridad ${name}: ${res.length} giros`);
+    }
+  }
+
+  // simplifyMoves: same cube, never longer; cancels what cancels (counter-check: dropping a move changes the cube).
+  {
+    check(RD.simplifyMoves(['R', "R'"]).length === 0 && RD.simplifyMoves(['R', 'L', "R'"]).join(' ') === 'L', "simplificación: R R' y R L R' no se reducen como se esperaba");
+    check(RD.simplifyMoves(['U', 'u', "U'"]).join(' ') === 'u', "simplificación: U u U' debía quedar u");
+    let bad = 0; let caught = 0;
+    for (let i = 0; i < 40; i++) {
+      const list = scramble(4, 12 + rnd(20), false).split(' ');
+      const a = make(4, list.join(' ')); const b = make(4, RD.simplifyMoves(list).join(' '));
+      if (faceletDiffOf(a, b)) bad++;
+      if (faceletDiffOf(a, make(4, list.slice(1).join(' ')))) caught++;
+    }
+    check(bad === 0, `simplificación: ${bad} listas cambiaron el cubo`);
+    check(caught > 0, 'contraprueba: quitar un giro debía cambiar el cubo');
+  }
+
+  // End to end through quickSolve: 40-button scrambles with inner slices and rotations.
+  {
+    const lens = [];
+    for (let i = 0; i < 4; i++) {
+      const alg = scramble(4, 40, true);
+      const state = make(4, alg);
+      const res = quickSolve(state, { timeMs: 700 });
+      const tag = `4x4 reducción "${alg}"`;
+      check(res.source === 'reduction' || (res.source === 'exact' && res.optimal), `${tag}: origen ${res.source}${res.error ? ` (${res.error})` : ''}`);
+      check(!!res.moves && replayOk(state, res), `${tag}: la solución no arma el cubo con amarillo arriba y verde al frente`);
+      if (!res.moves) continue;
+      check(res.lowerBound <= res.length && res.lowerBound >= 1, `${tag}: cota ${res.lowerBound} incoherente con longitud ${res.length}`);
+      check(res.length < 150 && res.optimal === false, `${tag}: ${res.length} giros`);
+      check(res.rotation.length <= 2, `${tag}: rotación final de ${res.rotation.length} giros`);
+      lens.push(res.length);
+    }
+    console.log(`4x4 reducción (4 mezclas de 40, 700 ms): longitudes ${lens.join(' ')}`);
+  }
+
+  // Long run, behind --long4 N: length and time distribution at the app budget.
+  if (LONG4) {
+    const lens = []; const times = [];
+    for (let i = 0; i < LONG4; i++) {
+      const alg = scramble(4, 40, true);
+      const state = make(4, alg);
+      const res = quickSolve(state, { timeMs: 4000 });
+      check(!!res.moves && replayOk(state, res), `4x4 largo "${alg}": no deja el cubo armado y orientado`);
+      if (!res.moves) continue;
+      check(res.lowerBound <= res.length, `4x4 largo "${alg}": cota ${res.lowerBound} mayor que ${res.length}`);
+      lens.push(res.length); times.push(res.ms);
+    }
+    const q = (a, f) => [...a].sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(f * a.length))];
+    console.log(`4x4 largo (${LONG4} mezclas de 40, 4000 ms): longitud min ${q(lens, 0)}, mediana ${q(lens, 0.5)}, máx ${q(lens, 1)}; tiempo min ${q(times, 0).toFixed(0)}, mediana ${q(times, 0.5).toFixed(0)}, máx ${q(times, 1).toFixed(0)} ms`);
+    const hist = {};
+    lens.forEach((l) => { const b = Math.floor(l / 10) * 10; hist[b] = (hist[b] || 0) + 1; });
+    console.log('  histograma de longitudes (por decenas):', Object.entries(hist).map(([l, c]) => `${l}s:${c}`).join(' '));
+    check(q(lens, 0.5) <= 90, `4x4 largo: la mediana ${q(lens, 0.5)} supera 90`);
+  }
 }
 
 // ---------- oracle edges ----------
@@ -413,6 +637,12 @@ check(noShorterThan(make(3, 'R U'), 2) && !noShorterThan(make(3, 'R U'), 3), 'or
   self.onmessage({ data: { state: serialize(state), timeMs: 2000 } });
   const r = replies.shift();
   check(r && r.ok && r.optimal && r.source === 'exact' && r.length === 3 && replayOk(state, r), `worker: estado serializado mal resuelto (${JSON.stringify(r)})`);
+  self.onmessage({ data: { warm: 4 } });
+  check(replies.shift()?.warmed === true, 'worker: warm 4 debía responder warmed');
+  const state4 = make(4, scramble(4, 30, true));
+  self.onmessage({ data: { state: serialize(state4), timeMs: 600 } });
+  const r4 = replies.shift();
+  check(r4 && r4.ok && (r4.source === 'reduction' || r4.optimal) && replayOk(state4, r4), `worker: 4x4 mal resuelto (${JSON.stringify(r4)?.slice(0, 200)})`);
   self.onmessage({ data: { state: serialize(new CubeState(2)), timeMs: 100 } });
   const bad = replies.shift();
   check(bad && bad.ok === false && /3x3 y 4x4/.test(bad.error), `worker: un 2x2 debía responder ok:false con motivo (${JSON.stringify(bad)})`);

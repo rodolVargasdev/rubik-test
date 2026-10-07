@@ -127,6 +127,7 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
     if (!res.ok) { setSolving(false); setCaption(`No se encontró un plan: ${res.error}`); onEnd({ completed: false }); return; }
 
     panel.hidden = false;
+    q('.sv-alg').classList.remove('long');
     q('.sv-status').hidden = true;
     q('.sv-extra').hidden = true;
     q('.sv-steps').hidden = false;
@@ -235,6 +236,7 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
 
   function quickHead(count, label, status = '') {
     panel.hidden = false;
+    q('.sv-alg').classList.remove('long');
     q('.sv-steps').hidden = true;
     q('.sv-extra').hidden = true;
     q('.sv-title').textContent = 'Armado rápido';
@@ -297,6 +299,13 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
       ? `<div class="group"><div class="chips"><span class="chip chip-hold">Sostener: ${rotation.join(' ')}</span></div><span class="glabel">No cuenta como giro</span></div>`
       : '';
     q('.sv-alg').innerHTML = movesHtml + holdHtml;
+    // A long solution (the 4x4 has dozens of moves) scrolls inside its own box.
+    q('.sv-alg').classList.toggle('long', moves.length > 24);
+    const reveal = (chip) => {
+      const box = q('.sv-alg');
+      if (!chip || !box.classList.contains('long')) return;
+      box.scrollTo({ top: chip.offsetTop - box.clientHeight / 2, behavior: REDUCED ? 'auto' : 'smooth' });
+    };
     const chips = qa('.sv-alg .chip[data-k]');
     const hold = q('.sv-alg .chip-hold');
     setCaption(`${moves.length} giros`, '', 'Armado rápido');
@@ -304,12 +313,14 @@ export function mountAutoSolve(host, { getView, getN, setCaption, onStart = () =
     for (let i = 0; i < moves.length; i++) {
       if (my !== runId) return;
       chips.forEach((c, j) => { c.classList.toggle('done', j < i); c.classList.toggle('now', j === i); });
+      reveal(chips[i]);
       const ok = await view.turn(moves[i]);
       if (!ok || my !== runId) return;
       q('.sv-count').textContent = `Giro ${i + 1} de ${moves.length}`;
     }
     chips.forEach((c) => { c.classList.remove('now'); c.classList.add('done'); });
     if (hold) {
+      reveal(hold);
       hold.classList.add('now');
       for (const t of rotation) {
         if (my !== runId) return;
