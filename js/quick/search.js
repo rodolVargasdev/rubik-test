@@ -24,6 +24,7 @@
 import { CubeState, FACE_NORMALS } from '../cube-core.js';
 import { deserialize } from '../solver.js';
 import { generatorList, commute } from './metric.js';
+import { twoPhaseSolve } from './two-phase.js';
 
 export { deserialize };
 
@@ -266,7 +267,8 @@ function finalRotation(m, st) {
   throw new Error('Ninguna rotación deja el cubo como lo sostiene la aplicación');
 }
 
-export function quickSolve(input, { timeMs = 2000, d1 } = {}) {
+// `maxLayer` is a test hook: stop after that many completed layers, as a timeout would.
+export function exactSearch(input, { timeMs = 2000, d1, maxLayer = 63 } = {}) {
   const t0 = performance.now();
   const state = input instanceof CubeState ? input : deserialize(input);
   const m = modelFor(state.n);
@@ -325,14 +327,35 @@ export function quickSolve(input, { timeMs = 2000, d1 } = {}) {
 
   stack[0].set(toArray(m, state));
   let completed = -1;
-  for (k = 0; k < stack.length - 1; k++) {
+  for (k = 0; k < Math.min(stack.length - 1, maxLayer + 1); k++) {
     if (dfs(0, -1) || timedOut) break;
     completed = k;
   }
   const ms = performance.now() - t0;
   if (!found) {
-    return { moves: null, rotation: null, length: null, optimal: false, lowerBound: Math.max(completed + depth1 + 1, 0), explored, ms };
+    return { moves: null, rotation: null, length: null, optimal: false, lowerBound: Math.max(completed + depth1 + 1, 0), completed, d1: depth1, explored, ms };
   }
   const moves = [...found.head, ...found.tail].map((i) => gens[i].token);
-  return { moves, rotation: finalRotation(m, found.end), length: moves.length, optimal: true, lowerBound: moves.length, explored, ms };
+  return { moves, rotation: finalRotation(m, found.end), length: moves.length, optimal: true, lowerBound: moves.length, completed, d1: depth1, explored, ms };
+}
+
+// Combined entry point. 3x3: up to 40 percent of the budget goes to the exact
+// search; when it cannot prove the minimum, the two-phase solver spends the
+// rest and the result is a short (not proven minimal) solution whose
+// lowerBound still comes from the exact search. 4x4: exact search only.
+//   source: 'exact' (proven minimum) | 'two-phase' | null (no solution)
+export function quickSolve(input, { timeMs = 2000, d1, twoPhase = true, target = 0 } = {}) {
+  const state = input instanceof CubeState ? input : deserialize(input);
+  const useTwo = twoPhase && state.n === 3;
+  const t0 = performance.now();
+  const ex = exactSearch(state, { timeMs: useTwo ? timeMs * 0.4 : timeMs, d1 });
+  if (ex.optimal) return { ...ex, source: 'exact' };
+  if (!useTwo) return { ...ex, source: null };
+  const tp = twoPhaseSolve(state, { timeMs: Math.max(timeMs - (performance.now() - t0), 0), target });
+  return {
+    ...ex, moves: tp.moves, rotation: tp.rotation, length: tp.length, optimal: false, source: 'two-phase',
+    lowerBound: Math.min(ex.lowerBound, tp.length),
+    twoPhase: { faceLength: tp.faceLength, rewrites: tp.rewrites, firstMs: tp.firstMs, nodes: tp.nodes },
+    ms: performance.now() - t0,
+  };
 }
