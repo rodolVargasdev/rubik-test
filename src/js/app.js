@@ -2,6 +2,8 @@ import { Stage, CubeView, AlgPlayer, changedPieces } from './viewer.js';
 import { GUIDE_3, GUIDE_4, buildCase, groupRanges, NOTATION, METHOD_LOAD, MASKS, ALGS } from './content.js';
 import { CubeState, tokenize, invertAlg, FACE_COLORS } from './cube-core.js';
 import { mountAutoSolve } from './autosolve.js';
+import { mountEditor } from './editor/editor-view.js';
+import { serialize } from './solver.js';
 
 const main = document.getElementById('main');
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -11,6 +13,9 @@ let cleanup = null;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Small bridge between views: the last cube shown in the notation view, for the editor.
+const shared = { notation: null };
 
 const store = {
   get(key, fallback) {
@@ -45,6 +50,7 @@ function randomScramble(n, len) {
 const routes = {
   '': viewHome,
   notacion: viewNotation,
+  pintar: () => mountEditor(main, { store, shared }),
   '3x3': () => viewGuide(GUIDE_3),
   '4x4': () => viewGuide(GUIDE_4),
   'por-que': viewWhy,
@@ -223,7 +229,10 @@ function viewNotation() {
     if ('UDRLFB'.includes(k) && k.length === 1) { doTurn(k + (e.shiftKey ? "'" : '')); e.preventDefault(); }
   };
   window.addEventListener('keydown', onKey);
-  return () => { auto.dispose(); window.removeEventListener('keydown', onKey); view.dispose(); stage.dispose(); };
+  return () => {
+    shared.notation = serialize(view.state);
+    auto.dispose(); window.removeEventListener('keydown', onKey); view.dispose(); stage.dispose();
+  };
 }
 
 // ---------- guides ----------

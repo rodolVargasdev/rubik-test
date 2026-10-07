@@ -29,6 +29,14 @@ animaciones three.js. Sin build: módulos ES servidos tal cual desde `src/`.
   nunca separan una pareja).
 - **Los centros del 4x4 se arman en su cara absoluta** (amarillo arriba, verde
   al frente), así que el 4x4 no necesita paso de orientación.
+- **Editor "Pintar" (`#/pintar`):** red 2D (cruz: U arriba; L F R B; D abajo) con
+  vista 3D en vivo. `editor/facelets.js` fija la geometría de la red y
+  `editor/validate.js` valida (conteos, piezas que existen, duplicadas, giro de
+  esquinas, volteo de aristas y paridad de permutación solo en 3x3) y arma el
+  `CubeState`. En 3x3 los centros son fijos; en 4x4 las alas se distinguen de su
+  gemela por la posición y la paridad no es error.
+- **Armado rápido en la interfaz:** `autosolve.js` lo ejecuta en
+  `quick-worker.js` (2 s, `target` 20 en 3x3).
 - **Textos de la interfaz en español neutro**, sin voseo y sin tipografía de IA.
 
 ## Trabajo en curso
@@ -43,6 +51,7 @@ node tests/verify-algorithms.mjs
 node tests/verify-solver.mjs 300 40
 node tests/verify-last-layer.mjs all --sample 300
 node tests/verify-quick.mjs
+node tests/verify-editor.mjs
 # Corrida larga y exhaustiva (62 208 + 248 832 estados; unos 6 min con 20 hilos), aparte del build:
 node tests/verify-last-layer.mjs all
 docker build -t rubik-spa .

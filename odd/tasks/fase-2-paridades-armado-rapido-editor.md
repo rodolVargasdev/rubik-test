@@ -138,7 +138,7 @@ preguntan al llegar a cada punto, una por vez.
   - [x] **T2.3** Interfaz: botón "Armado rápido" junto al automático; traza la
     lista de giros con su cuenta y la etiqueta "mínimo demostrado" o la cota, y
     la ejecuta animada. Revisión en navegador.
-- [ ] **T3** Editor para pintar el cubo. Antes: decidir con el usuario la forma.
+- [x] **T3** Editor para pintar el cubo. Forma decidida: red 2D más vista 3D en vivo.
 - [ ] **T4** Registro de rompecabezas.
 
 ## Evidencia
@@ -202,3 +202,14 @@ docker build -t rubik-spa .
   da "al menos 7 giros" con el botón de respaldo; cancelar descarta el worker;
   sin errores de consola. `verify-algorithms` 180/0, `verify-solver 60 8`
   278/0, `verify-last-layer all --sample 300` 5064/0, `verify-quick` 2159/0.
+- **T3** (2026-10-07). `src/js/editor/` (facelets, validate, editor-view) y la
+  ruta `#/pintar`. `tests/verify-editor.mjs`: 3360/0 (200 mezclas 3x3 y 40 4x4
+  con ida y vuelta de stickers, el armado automático y el rápido sobre lo
+  reconstruido, una prueba por clase de error con el mensaje que nombra la
+  pieza, y 2084 cambios de un sticker en 3x3 que siempre se reportan; en 4x4 de
+  499 cambios 41 son estados legales y reproducen lo pintado). Decisión: la
+  paridad de permutación solo se exige en 3x3; en 4x4 las piezas de centro
+  idénticas y las alas distinguibles la absorben. Navegador (Chrome real):
+  pintar un sticker muestra el error con la pieza y resalta 11 stickers,
+  corregirlo habilita los botones, "Desde la vista actual" carga y el rápido
+  da 3 giros, ancho 502 sin desplazamiento horizontal, sin errores de consola.

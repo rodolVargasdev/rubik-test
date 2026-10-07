@@ -4,7 +4,7 @@ FROM node:24.21.0-alpine AS verify
 WORKDIR /app
 COPY src ./src
 COPY tests ./tests
-RUN node tests/verify-algorithms.mjs && node tests/verify-solver.mjs 60 8 && node tests/verify-last-layer.mjs all --sample 300 && node tests/verify-quick.mjs
+RUN node tests/verify-algorithms.mjs && node tests/verify-solver.mjs 60 8 && node tests/verify-last-layer.mjs all --sample 300 && node tests/verify-quick.mjs && node tests/verify-editor.mjs 80 15
 
 # Stage 2: serve the static SPA.
 FROM nginx:1.30.5-alpine
